@@ -24,14 +24,44 @@
  * THE SOFTWARE.
  */
 
+#include "hw_timer.h"
 #include "py/mphal.h"
+#include "user_interface.h"
+
+
+STATIC void cs_off()
+{
+  gpio_output_set(1 << 4, 0, 1 << 4, 0);
+}
+
+STATIC void cs_on()
+{
+  gpio_output_set(0, 1 << 4, 1 << 4, 0);
+}
+
+
+static int CS;
+
+STATIC void fastdac_timer_cb()
+{
+  CS ? cs_on() : cs_off();
+  CS = !CS;
+}
 
 
 STATIC mp_obj_t fastdac_init()
 {
+  CS = 0;
   PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
   PIN_PULLUP_DIS(PERIPHS_IO_MUX_GPIO4_U);
   gpio_output_set(0, 0, GPIO_ID_PIN(4), 0);
+
+  // the timer doesn't allow us to sleep
+  wifi_set_sleep_type(NONE_SLEEP_T);
+
+  hw_timer_init(FRC1_SOURCE, 1);
+  hw_timer_set_func(fastdac_timer_cb);
+  hw_timer_arm(1000);
   return mp_const_none;
 }
 
@@ -40,7 +70,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(fastdac_init_obj, fastdac_init);
 
 STATIC mp_obj_t fastdac_on()
 {
-  gpio_output_set(1 << 4, 0, 1 << 4, 0);
+  cs_off();
   return mp_const_none;
 }
 
@@ -49,7 +79,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(fastdac_on_obj, fastdac_on);
 
 STATIC mp_obj_t fastdac_off()
 {
-  gpio_output_set(0, 1 << 4, 1 << 4, 0);
+  cs_on();
   return mp_const_none;
 }
 
