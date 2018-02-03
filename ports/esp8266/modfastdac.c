@@ -26,6 +26,7 @@
 
 #include "hw_timer.h"
 #include "py/mphal.h"
+#include "hspi.h"
 #include "user_interface.h"
 
 
@@ -42,10 +43,62 @@ STATIC void cs_on()
 
 static int CS;
 
+STATIC void fastdac_write_value(uint8_t channel, uint16_t value)
+{
+  uint8_t buf = 0;
+  uint8_t double_gain = 0;
+  uint8_t shutdown = 0;
+  channel &= 1;
+  uint8_t gain = 0x01 & ! double_gain;
+  uint8_t shdn = 0x01 & ! shutdown;
+  value &= 0xfff; // 12 bits
+  uint8_t msb = (channel << 7) | (buf << 6) | (gain << 5) | (shdn << 4) | (value >> 8);
+  uint8_t lsb = value & 0xff;
+  cs_on();
+  spi_tx8fast(HSPI, msb);
+  spi_tx8fast(HSPI, lsb);
+  while (spi_busy(HSPI)) {
+  }
+  cs_off();
+}
+
+
+
 STATIC void fastdac_timer_cb()
 {
-  CS ? cs_on() : cs_off();
-  CS = !CS;
+  static uint16_t value = 0;
+  fastdac_write_value(0, value++);
+}
+
+
+STATIC int fastdac_spi_set_baudrate(int baudrate)
+{
+  if (baudrate == 80000000L) {
+    // Special case for full speed.
+    spi_init_gpio(HSPI, SPI_CLK_80MHZ_NODIV);
+    spi_clock(HSPI, 0, 0);
+  } else {
+    uint32_t divider = 40000000L / baudrate;
+    uint16_t prediv = MIN(divider, SPI_CLKDIV_PRE + 1);
+    uint16_t cntdiv = (divider / prediv) * 2; // cntdiv has to be even
+    baudrate = 80000000L / (prediv * cntdiv);
+    spi_init_gpio(HSPI, SPI_CLK_USE_DIV);
+    spi_clock(HSPI, prediv, cntdiv);
+  }
+  return baudrate;
+}
+
+STATIC void fastdac_spi_init()
+{
+  spi_tx_byte_order(HSPI, SPI_BYTE_ORDER_HIGH_TO_LOW);
+  spi_rx_byte_order(HSPI, SPI_BYTE_ORDER_HIGH_TO_LOW);
+  CLEAR_PERI_REG_MASK(SPI_USER(HSPI), SPI_FLASH_MODE | SPI_USR_MISO |
+                      SPI_USR_ADDR | SPI_USR_COMMAND | SPI_USR_DUMMY);
+  // Clear Dual or Quad lines transmission mode
+  CLEAR_PERI_REG_MASK(SPI_CTRL(HSPI), SPI_QIO_MODE | SPI_DIO_MODE |
+                      SPI_DOUT_MODE | SPI_QOUT_MODE);
+  spi_mode(HSPI, 0, 0);
+  fastdac_spi_set_baudrate(1000000);
 }
 
 
@@ -56,6 +109,7 @@ STATIC mp_obj_t fastdac_init()
   PIN_PULLUP_DIS(PERIPHS_IO_MUX_GPIO4_U);
   gpio_output_set(0, 0, GPIO_ID_PIN(4), 0);
 
+  fastdac_spi_init();
   // the timer doesn't allow us to sleep
   wifi_set_sleep_type(NONE_SLEEP_T);
 
