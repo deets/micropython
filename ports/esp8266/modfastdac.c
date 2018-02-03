@@ -24,19 +24,7 @@
  * THE SOFTWARE.
  */
 
-#include <stdio.h>
-
-#include "py/gc.h"
-#include "py/runtime.h"
-#include "py/mperrno.h"
 #include "py/mphal.h"
-#include "drivers/dht/dht.h"
-#include "uart.h"
-#include "user_interface.h"
-#include "mem.h"
-#include "espneopixel.h"
-#include "espapa102.h"
-#include "modmachine.h"
 
 
 STATIC mp_obj_t fastdac_init()
