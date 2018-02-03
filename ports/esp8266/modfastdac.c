@@ -39,9 +39,43 @@
 #include "modmachine.h"
 
 
+STATIC mp_obj_t fastdac_init()
+{
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
+  PIN_PULLUP_DIS(PERIPHS_IO_MUX_GPIO4_U);
+  gpio_output_set(0, 0, GPIO_ID_PIN(4), 0);
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(fastdac_init_obj, fastdac_init);
+
+
+STATIC mp_obj_t fastdac_on()
+{
+  gpio_output_set(1 << 4, 0, 1 << 4, 0);
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(fastdac_on_obj, fastdac_on);
+
+
+STATIC mp_obj_t fastdac_off()
+{
+  gpio_output_set(0, 1 << 4, 1 << 4, 0);
+  return mp_const_none;
+}
+
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(fastdac_off_obj, fastdac_off);
+
+
 STATIC const mp_rom_map_elem_t module_globals_table_fastdac[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_fastdac) },
+    { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&fastdac_init_obj) },
+    { MP_ROM_QSTR(MP_QSTR_on), MP_ROM_PTR(&fastdac_on_obj) },
+    { MP_ROM_QSTR(MP_QSTR_off), MP_ROM_PTR(&fastdac_off_obj) },
 };
+
 
 STATIC MP_DEFINE_CONST_DICT(module_globals_fastdac, module_globals_table_fastdac);
 
