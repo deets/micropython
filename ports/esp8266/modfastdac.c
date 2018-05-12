@@ -30,6 +30,10 @@
 #include "user_interface.h"
 
 
+STATIC uint16_t* SINTAB;
+STATIC size_t    SINTABSIZE;
+STATIC size_t    CH0_STEP;
+
 STATIC void cs_off()
 {
   gpio_output_set(1 << 4, 0, 1 << 4, 0);
@@ -40,8 +44,6 @@ STATIC void cs_on()
   gpio_output_set(0, 1 << 4, 1 << 4, 0);
 }
 
-
-static int CS;
 
 STATIC void fastdac_write_value(uint8_t channel, uint16_t value)
 {
@@ -66,8 +68,9 @@ STATIC void fastdac_write_value(uint8_t channel, uint16_t value)
 
 STATIC void fastdac_timer_cb()
 {
-  static uint16_t value = 0;
-  fastdac_write_value(0, value++);
+  static size_t pos = 0;
+  fastdac_write_value(0, SINTAB[pos]);
+  pos = (pos + CH0_STEP) % SINTABSIZE;
 }
 
 
@@ -102,9 +105,14 @@ STATIC void fastdac_spi_init()
 }
 
 
-STATIC mp_obj_t fastdac_init()
+STATIC mp_obj_t fastdac_init(mp_obj_t sintab)
 {
-  CS = 0;
+  mp_buffer_info_t sintab_dest;
+  mp_get_buffer_raise(sintab, &sintab_dest, MP_BUFFER_READ);
+  SINTABSIZE = sintab_dest.len / sizeof(uint16_t);
+  SINTAB = (uint16_t*)sintab_dest.buf;
+  CH0_STEP = 1;
+
   PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
   PIN_PULLUP_DIS(PERIPHS_IO_MUX_GPIO4_U);
   gpio_output_set(0, 0, GPIO_ID_PIN(4), 0);
@@ -119,33 +127,23 @@ STATIC mp_obj_t fastdac_init()
   return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(fastdac_init_obj, fastdac_init);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(fastdac_init_obj, fastdac_init);
 
 
-STATIC mp_obj_t fastdac_on()
+STATIC mp_obj_t fastdac_set_step(mp_obj_t step_arg)
 {
-  cs_off();
+  mp_int_t step = mp_obj_get_int(step_arg);
+  CH0_STEP = step;
   return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(fastdac_on_obj, fastdac_on);
-
-
-STATIC mp_obj_t fastdac_off()
-{
-  cs_on();
-  return mp_const_none;
-}
-
-
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(fastdac_off_obj, fastdac_off);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(fastdac_set_step_obj, fastdac_set_step);
 
 
 STATIC const mp_rom_map_elem_t module_globals_table_fastdac[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_fastdac) },
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&fastdac_init_obj) },
-    { MP_ROM_QSTR(MP_QSTR_on), MP_ROM_PTR(&fastdac_on_obj) },
-    { MP_ROM_QSTR(MP_QSTR_off), MP_ROM_PTR(&fastdac_off_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_step), MP_ROM_PTR(&fastdac_set_step_obj) },
 };
 
 
