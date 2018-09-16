@@ -35,19 +35,52 @@
 #include <esp_timer.h>
 
 
-#define NJ_TASK_PRIORITY        (ESP_TASK_PRIO_MIN + 1)
-#define NJ_TASK_STACK_SIZE      (1024)
-#define NJ_TASK_STACK_LEN       (NJ_TASK_STACK_SIZE / sizeof(StackType_t))
-#define NJ_TASK_CORE 0 // TODO: We are bound to 1 as uP is running on core 0, see main.c
+#define NJ_MAX_TASKS 8
+
+typedef enum
+{
+  NJ_TASK_MPU6050
+} nj_task_type;
+
+typedef struct {
+  nj_task_type type;
+  mp_obj_t i2c;
+  size_t offset;
+} nj_task_def_t;
 
 esp_timer_handle_t nj_timer_handle = NULL;
+int nj_timer_counter = 0;
+int nj_timer_task_count = 0;
+uint8_t *nj_buffer;
+size_t nj_buffer_size;
+size_t nj_task_count = 0;
+nj_task_def_t nj_tasks[NJ_MAX_TASKS];
+
+STATIC void newjoy_task_mpu6050(uint8_t *buffer)
+{
+  for(size_t i=0; i < 6; ++i)
+  {
+    ++buffer[i];
+  }
+}
 
 STATIC void nj_task()
 {
-  printf("nj_task\n");
+  ++nj_timer_counter;
+  for(size_t i=0; i < nj_task_count; ++i)
+  {
+    const nj_task_def_t *current = &nj_tasks[i];
+    switch(current->type)
+    {
+    case NJ_TASK_MPU6050:
+      newjoy_task_mpu6050(nj_buffer + current->offset);
+      break;
+    }
+  }
 }
 
-STATIC mp_obj_t newjoy_init(mp_obj_t arg)
+
+STATIC mp_obj_t newjoy_init(mp_obj_t arg, mp_obj_t buf)
 {
   esp_err_t timer_err;
   mp_int_t ms = mp_obj_get_int(arg);
@@ -59,6 +92,16 @@ STATIC mp_obj_t newjoy_init(mp_obj_t arg)
   {
     mp_raise_msg(&mp_type_OSError, "newjoy already initialised, call deinit() first");
   }
+  mp_buffer_info_t write_buffer;
+  mp_get_buffer_raise(buf, &write_buffer, MP_BUFFER_RW);
+  if(!write_buffer.len)
+  {
+    mp_raise_ValueError("Buffer must be large enough");
+  }
+  nj_buffer = (uint8_t*)write_buffer.buf;
+  nj_buffer_size = write_buffer.len;
+  nj_task_count = 0;
+
   esp_timer_create_args_t timer_args = {
     .callback = nj_task,
     .dispatch_method = ESP_TIMER_TASK,
@@ -102,7 +145,7 @@ STATIC mp_obj_t newjoy_init(mp_obj_t arg)
   return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_init_obj, newjoy_init);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(newjoy_init_obj, newjoy_init);
 
 STATIC mp_obj_t newjoy_deinit()
 {
@@ -115,10 +158,52 @@ STATIC mp_obj_t newjoy_deinit()
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_deinit_obj, newjoy_deinit);
 
 
+STATIC mp_obj_t newjoy_timer_count()
+{
+  return mp_obj_new_int(nj_timer_counter);
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_timer_count_obj, newjoy_timer_count);
+
+STATIC mp_obj_t newjoy_add_task(mp_obj_t i2c, mp_obj_t task_type, mp_obj_t buf_offset)
+{
+  if(nj_task_count + 1 >= NJ_MAX_TASKS)
+  {
+    mp_raise_ValueError("Can't register more tasks");
+  }
+  mp_int_t buffer_offset = mp_obj_get_int(buf_offset);
+  nj_task_type type = mp_obj_get_int(task_type);
+  size_t buffer_usage = 0;
+  switch(type)
+  {
+  case NJ_TASK_MPU6050:
+    buffer_usage = 6; // 6 bytes for the MPU6050
+    break;
+  default:
+    mp_raise_ValueError("Unknown task type");
+  }
+  if(buffer_offset < 0 || buffer_offset + buffer_usage > nj_buffer_size)
+  {
+    mp_raise_ValueError("Can't place data into buffer at given offset");
+  }
+  nj_task_def_t task_def = {
+    .i2c = i2c,
+    .type = type,
+    .offset = buffer_offset
+  };
+  nj_tasks[nj_task_count++] = task_def;
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_3(newjoy_add_task_obj, newjoy_add_task);
+
 STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_newjoy) },
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&newjoy_init_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&newjoy_deinit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_timer_count), MP_ROM_PTR(&newjoy_timer_count_obj) },
+    { MP_ROM_QSTR(MP_QSTR_add_task), MP_ROM_PTR(&newjoy_add_task_obj) },
+    { MP_ROM_QSTR(MP_QSTR_TASK_MPU6050), MP_ROM_INT(NJ_TASK_MPU6050) },
 };
 
 STATIC MP_DEFINE_CONST_DICT(module_globals_newjoy, module_globals_table_newjoy);
