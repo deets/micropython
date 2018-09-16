@@ -32,40 +32,72 @@
 #include "py/mphal.h"
 
 #include <esp_task.h>
+#include <esp_timer.h>
+
 
 #define NJ_TASK_PRIORITY        (ESP_TASK_PRIO_MIN + 1)
 #define NJ_TASK_STACK_SIZE      (1024)
 #define NJ_TASK_STACK_LEN       (NJ_TASK_STACK_SIZE / sizeof(StackType_t))
 #define NJ_TASK_CORE 0 // TODO: We are bound to 1 as uP is running on core 0, see main.c
 
-STATIC TaskHandle_t nj_task_handle = NULL;
-STATIC StaticTask_t nj_task_tcb;
-STATIC StackType_t nj_task_stack[NJ_TASK_STACK_LEN] __attribute__((aligned (8)));
-STATIC int nj_task_period;
-STATIC int nj_running;
-STATIC volatile int nj_stopped;
+esp_timer_handle_t nj_timer_handle = NULL;
 
 STATIC void nj_task()
 {
-  while(nj_running)
-  {
-    mp_hal_delay_ms(nj_task_period);
-    printf("nj_task\n");
-  }
-  nj_stopped = 1;
-  vTaskDelete(NULL);
+  printf("nj_task\n");
 }
 
 STATIC mp_obj_t newjoy_init(mp_obj_t arg)
 {
+  esp_err_t timer_err;
   mp_int_t ms = mp_obj_get_int(arg);
-  if (ms > 0) {
-    nj_task_period = ms;
-    nj_running = 1;
-    nj_stopped = 0;
-    nj_task_handle = xTaskCreateStaticPinnedToCore(
-      nj_task, "nj_task", NJ_TASK_STACK_LEN, NULL, NJ_TASK_PRIORITY,
-      &nj_task_stack[0], &nj_task_tcb, NJ_TASK_CORE);
+  if(ms <= 0)
+  {
+    mp_raise_ValueError("Timer Cycle must be positive integer");
+  }
+  if(nj_timer_handle)
+  {
+    mp_raise_msg(&mp_type_OSError, "newjoy already initialised, call deinit() first");
+  }
+  esp_timer_create_args_t timer_args = {
+    .callback = nj_task,
+    .dispatch_method = ESP_TIMER_TASK,
+    .name = "nj_task"
+  };
+
+  timer_err = esp_timer_create(
+    &timer_args,
+    &nj_timer_handle
+    );
+  switch(timer_err)
+  {
+  case ESP_OK:
+    break;
+  case ESP_ERR_INVALID_ARG:
+    mp_raise_msg(&mp_type_OSError, "invalid configuration");
+    break;
+  case ESP_ERR_INVALID_STATE:
+    mp_raise_msg(&mp_type_OSError, "timer library not setup");
+    break;
+  case ESP_ERR_NO_MEM:
+    mp_raise_msg(&mp_type_OSError, "out of memory error");
+    break;
+  }
+  timer_err = esp_timer_start_periodic(
+    nj_timer_handle,
+    ms * 1000
+    );
+  switch(timer_err)
+  {
+  case ESP_OK:
+    break;
+  case ESP_ERR_INVALID_ARG:
+    esp_timer_delete(nj_timer_handle);
+    mp_raise_msg(&mp_type_OSError, "time handle invalid");
+  case ESP_ERR_INVALID_STATE:
+    esp_timer_delete(nj_timer_handle);
+    mp_raise_msg(&mp_type_OSError, "timer already running");
+    break;
   }
   return mp_const_none;
 }
@@ -74,14 +106,9 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_init_obj, newjoy_init);
 
 STATIC mp_obj_t newjoy_deinit()
 {
-  if(nj_task_handle)
-  {
-    printf("trying to stop nj_task\n");
-    nj_running = 0;
-    while(!nj_stopped)
-    {
-    }
-  }
+  esp_timer_stop(nj_timer_handle);
+  esp_timer_delete(nj_timer_handle);
+  nj_timer_handle = NULL;
   return mp_const_none;
 }
 
