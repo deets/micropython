@@ -74,6 +74,7 @@ typedef struct {
   float acc_correction;
   float gyro_correction;
   int16_t gyro_calibration[3];
+  int16_t acc_calibration[3];
   int16_t gyro_calibration_buffer[3 * GYRO_CALIBRATION_BUFFER_SIZE];
   size_t gyro_calibration_buffer_fill;
   gyro_calbration_mode_t gyro_calbration_mode;
@@ -180,6 +181,7 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
     task_data->input_buffer[i*2 + 1] = h;
   }
   float* gyro_data = (float*)buffer;
+  float* acc_data = gyro_data + 3;
 
   int16_t* word_access = (int16_t*)task_data->input_buffer;
 
@@ -200,10 +202,14 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
        compute_variance(&task_data->gyro_calibration_buffer[2]) < GYRO_CALIBRATION_VARIANCE)
     {
       task_data->gyro_calbration_mode = GYRO_CALIBRATED;
+      // I piggy-back on the gyros being stable, as I presume there is also no acceleration going on then
       for(size_t i=0; i < 3; ++i)
       {
         task_data->gyro_calibration[i] = word_access[3 + 1 + i];
       }
+      task_data->acc_calibration[0] = word_access[0];
+      task_data->acc_calibration[1] = word_access[1];
+      task_data->acc_calibration[2] = word_access[2] - (int16_t)(task_data->acc_correction) ; // assume level orientation!
     }
     break;
   case GYRO_CALIBRATED:
@@ -213,7 +219,13 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
     }
     break;
   }
+  // acc
+  for(size_t i=0; i < 3; ++i)
+  {
+    acc_data[i] = ((float)(word_access[i] - task_data->acc_calibration[i])) / task_data->acc_correction;
+  }
 }
+
 
 int newjoy_task_setup_mpu6050(nj_task_def_t* task)
 {
@@ -318,6 +330,22 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task)
     MPU6050_RA_ACCEL_CONFIG,
     acc_range
     );
+
+  switch(task_data->acc_fs)
+  {
+  case ACC_2_FS:
+    task_data->acc_correction =32768.0 / 2;
+    break;
+  case ACC_4_FS:
+    task_data->acc_correction =32768.0 / 4;
+    break;
+  case ACC_8_FS:
+    task_data->acc_correction =32768.0 / 8;
+    break;
+  case ACC_16_FS:
+    task_data->acc_correction =32768.0 / 16;
+    break;
+  }
 
   task_data->gyro_calibration_buffer_fill = 0;
   task_data->gyro_calbration_mode = GYRO_UNCALIBRATED;
