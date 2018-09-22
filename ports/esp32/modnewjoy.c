@@ -24,6 +24,9 @@
  * THE SOFTWARE.
  */
 
+#include "modnewjoy.h"
+#include "nj-mpu6050.h"
+
 #include <stdio.h>
 
 #include "py/gc.h"
@@ -34,20 +37,6 @@
 #include <esp_task.h>
 #include <esp_timer.h>
 
-
-#define NJ_MAX_TASKS 8
-
-typedef enum
-{
-  NJ_TASK_MPU6050
-} nj_task_type;
-
-typedef struct {
-  nj_task_type type;
-  mp_obj_t i2c;
-  size_t offset;
-} nj_task_def_t;
-
 esp_timer_handle_t nj_timer_handle = NULL;
 int nj_timer_counter = 0;
 int nj_timer_task_count = 0;
@@ -56,13 +45,6 @@ size_t nj_buffer_size;
 size_t nj_task_count = 0;
 nj_task_def_t nj_tasks[NJ_MAX_TASKS];
 
-STATIC void newjoy_task_mpu6050(uint8_t *buffer)
-{
-  for(size_t i=0; i < 6; ++i)
-  {
-    ++buffer[i];
-  }
-}
 
 STATIC void nj_task()
 {

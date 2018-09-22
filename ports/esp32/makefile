@@ -4,6 +4,6 @@ PORT = /dev/ttyUSB0
 #FLASH_SIZE = 4MB
 CROSS_COMPILE = xtensa-esp32-elf-
 BUILD_VERBOSE=1
-SRC_MOD += modnewjoy.c
+SRC_MOD += modnewjoy.c nj-mpu6050.c
 include Makefile
 
