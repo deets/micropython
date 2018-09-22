@@ -25,6 +25,8 @@
  */
 
 #include "nj-mpu6050.h"
+#include "madgwick-ahrs.h"
+
 #include "mphalport.h"
 #include "extmod/machine_i2c.h"
 #include <string.h>
@@ -79,6 +81,7 @@ typedef struct {
   int16_t acc_calibration_buffer[3 * GYRO_CALIBRATION_BUFFER_SIZE];
   size_t gyro_calibration_buffer_fill;
   gyro_calbration_mode_t gyro_calbration_mode;
+  madgwick_data_t filter_data;
 } mpu6050_task_data_t;
 
 STATIC int read_from_device_register_into_buffer(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t* buf, size_t len)
@@ -195,6 +198,7 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
   }
   float* gyro_data = (float*)buffer;
   float* acc_data = gyro_data + 3;
+  float* euler_data = acc_data + 3;
 
   int16_t* word_access = (int16_t*)task_data->input_buffer;
 
@@ -203,6 +207,8 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
   case GYRO_UNCALIBRATED:
     // when uncalibrated, no readings occur!
     gyro_data[0] = gyro_data[1] = gyro_data[2] = 0.0f;
+    acc_data[0] = acc_data[1] = acc_data[2] = 0.0f;
+    euler_data[0] = euler_data[1] = euler_data[2] = 0.0f;
     for(size_t i=0; i < 3; ++i)
     {
       task_data->gyro_calibration_buffer[task_data->gyro_calibration_buffer_fill * 3 + i] = word_access[3 + 1 + i];
@@ -229,18 +235,23 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
     for(size_t i=0; i < 3; ++i)
     {
       gyro_data[i] = ((float)(word_access[3 + 1 + i] - task_data->gyro_calibration[i])) / task_data->gyro_correction;
+      acc_data[i] = ((float)(word_access[i] - task_data->acc_calibration[i])) / task_data->acc_correction;
     }
+    madgwick_ahrs_update_imu(
+      &task_data->filter_data,
+      gyro_data[0], gyro_data[1], gyro_data[2],
+      acc_data[0], acc_data[1], acc_data[2]
+      );
+    madgwick_ahrs_compute_angles(
+      &task_data->filter_data,
+      &euler_data[0], &euler_data[1], &euler_data[2]
+      );
     break;
-  }
-  // acc
-  for(size_t i=0; i < 3; ++i)
-  {
-    acc_data[i] = ((float)(word_access[i] - task_data->acc_calibration[i])) / task_data->acc_correction;
   }
 }
 
 
-int newjoy_task_setup_mpu6050(nj_task_def_t* task)
+int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
 {
   int res;
   uint8_t identity;
@@ -362,6 +373,10 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task)
 
   task_data->gyro_calibration_buffer_fill = 0;
   task_data->gyro_calbration_mode = GYRO_UNCALIBRATED;
+  madgwick_ahrs_init(
+    &task_data->filter_data,
+    1000 / period // period is in ms
+    );
   return 0;
 }
 

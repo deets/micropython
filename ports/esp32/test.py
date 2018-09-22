@@ -13,12 +13,12 @@ if not 104 in ids:
 
 buf = array.array('B', [0 for _ in range(128)])
 
-newjoy.init(10, buf)
+newjoy.init(2, buf)
 newjoy.add_task(i2c, newjoy.TASK_MPU6050, 0)
 
 while True: #for _ in range(100):
     time.sleep(.2)
-    values = ustruct.unpack_from("ffffff", buf, 0)
-    print("{:+4.7f}, {:+4.7f}, {:+4.7f} - {:+4.7f}, {:+4.7f}, {:+4.7f}".format(*values))
+    values = ustruct.unpack_from("fffffffff", buf, 0)
+    print("{:+4.7f}, {:+4.7f}, {:+4.7f} - {:+4.7f}, {:+4.7f}, {:+4.7f} - {:+4.7f}, {:+4.7f}, {:+4.7f}".format(*values))
 
 newjoy.deinit()

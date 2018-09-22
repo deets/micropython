@@ -44,7 +44,7 @@ uint8_t *nj_buffer;
 size_t nj_buffer_size;
 size_t nj_task_count = 0;
 nj_task_def_t nj_tasks[NJ_MAX_TASKS];
-
+int nj_period_in_ms;
 
 STATIC void nj_task()
 {
@@ -124,6 +124,7 @@ STATIC mp_obj_t newjoy_init(mp_obj_t arg, mp_obj_t buf)
     mp_raise_msg(&mp_type_OSError, "timer already running");
     break;
   }
+  nj_period_in_ms = ms;
   return mp_const_none;
 }
 
@@ -186,7 +187,7 @@ STATIC mp_obj_t newjoy_add_task(mp_obj_t i2c, mp_obj_t task_type, mp_obj_t buf_o
     .offset = buffer_offset,
     .task_data = NULL
   };
-  if(task_setup_function(&task_def))
+  if(task_setup_function(&task_def, nj_period_in_ms))
   {
     mp_raise_ValueError("Couldn't set up task");
   }

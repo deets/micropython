@@ -41,4 +41,4 @@ typedef struct {
   void* task_data;
 } nj_task_def_t;
 
-typedef int (*TASK_SETUP_FUNCTION)(nj_task_def_t*);
+typedef int (*TASK_SETUP_FUNCTION)(nj_task_def_t*, int period);
