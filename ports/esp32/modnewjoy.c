@@ -170,7 +170,7 @@ STATIC mp_obj_t newjoy_add_task(mp_obj_t i2c, mp_obj_t task_type, mp_obj_t buf_o
   switch(type)
   {
   case NJ_TASK_MPU6050:
-    buffer_usage = 6; // 6 bytes for the MPU6050
+    buffer_usage = MPU6050_BUFFER_SIZE;
     task_setup_function = newjoy_task_setup_mpu6050;
     break;
   default:

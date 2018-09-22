@@ -37,10 +37,47 @@
 #define MPU6050_CLOCK_PLL_XGYRO 0x01
 #define MPU6050_RA_CONFIG 0x1A
 #define MPU6050_RA_SMPLRT_DIV 0x19
-
+#define MPU6050_RA_GYRO_CONFIG 0x1B
+#define MPU6050_RA_ACCEL_CONFIG 0x1C
 #define MPU6050_RA_WHO_AM_I 0x75
 #define MPU6050_DEFAULT_SAMPLE_RATE 0x20
 #define MPU6050_RA_GYRO_XOUT_H 0x43
+#define MPU6050_RA_ACCEL_XOUT_H 0x3B
+
+#define GYRO_CALIBRATION_BUFFER_SIZE 10
+#define GYRO_CALIBRATION_VARIANCE 5
+
+typedef enum {
+  GYRO_250_FS=0,
+  GYRO_500_FS=1,
+  GYRO_1000_FS=2,
+  GYRO_2000_FS=3
+} mpu6050_gyro_fs_t;
+
+
+typedef enum {
+  ACC_2_FS=0,
+  ACC_4_FS=1,
+  ACC_8_FS=2,
+  ACC_16_FS=3
+} mpu6050_acc_fs_t;
+
+typedef enum {
+  GYRO_UNCALIBRATED,
+  GYRO_CALIBRATED
+} gyro_calbration_mode_t;
+
+typedef struct {
+  mpu6050_gyro_fs_t gyro_fs;
+  mpu6050_acc_fs_t acc_fs;
+  uint8_t input_buffer[14]; // acc + temp + gyro data
+  float acc_correction;
+  float gyro_correction;
+  int16_t gyro_calibration[3];
+  int16_t gyro_calibration_buffer[3 * GYRO_CALIBRATION_BUFFER_SIZE];
+  size_t gyro_calibration_buffer_fill;
+  gyro_calbration_mode_t gyro_calbration_mode;
+} mpu6050_task_data_t;
 
 STATIC int read_from_device_register_into_buffer(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t* buf, size_t len)
 {
@@ -113,15 +150,69 @@ STATIC int write_byte_to_device_register(mp_obj_t i2c, uint16_t address, uint8_t
     );
  }
 
+STATIC int16_t compute_variance(int16_t* buffer)
+{
+  int32_t accu = 0;
+  for(size_t i=0; i < GYRO_CALIBRATION_BUFFER_SIZE - 1; ++i)
+  {
+    accu += abs(buffer[i * 3] - buffer[(i + 1) * 3]);
+  }
+  accu /= GYRO_CALIBRATION_BUFFER_SIZE - 1;
+  return (int16_t)accu;
+}
+
+
 void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
 {
+  mpu6050_task_data_t* task_data = (mpu6050_task_data_t*)task->task_data;
   read_from_device_register_into_buffer(
     task->i2c,
     MPU6050_DEFAULT_ADDRESS,
-    MPU6050_RA_GYRO_XOUT_H,
-    buffer,
-    6
+    MPU6050_RA_ACCEL_XOUT_H,
+    task_data->input_buffer,
+    sizeof(task_data->input_buffer)
     );
+  // swap endianess
+  for(size_t i=0; i < 7; ++i)
+  {
+    uint8_t h = task_data->input_buffer[i*2];
+    task_data->input_buffer[i*2]= task_data->input_buffer[i*2 + 1];
+    task_data->input_buffer[i*2 + 1] = h;
+  }
+  float* gyro_data = (float*)buffer;
+
+  int16_t* word_access = (int16_t*)task_data->input_buffer;
+
+  switch(task_data->gyro_calbration_mode)
+  {
+  case GYRO_UNCALIBRATED:
+    // when uncalibrated, no readings occur!
+    gyro_data[0] = gyro_data[1] = gyro_data[2] = 0.0f;
+    for(size_t i=0; i < 3; ++i)
+    {
+      task_data->gyro_calibration_buffer[task_data->gyro_calibration_buffer_fill * 3 + i] = word_access[3 + 1 + i];
+    }
+    task_data->gyro_calibration_buffer_fill = (task_data->gyro_calibration_buffer_fill + 1) % GYRO_CALIBRATION_BUFFER_SIZE;
+    // if we reach zero, we have sampled one full ring-buffer of data, so try & compute the variance, and assume calibration
+    // if all of them are below a threshold
+    if(compute_variance(&task_data->gyro_calibration_buffer[0]) < GYRO_CALIBRATION_VARIANCE && \
+       compute_variance(&task_data->gyro_calibration_buffer[1]) < GYRO_CALIBRATION_VARIANCE && \
+       compute_variance(&task_data->gyro_calibration_buffer[2]) < GYRO_CALIBRATION_VARIANCE)
+    {
+      task_data->gyro_calbration_mode = GYRO_CALIBRATED;
+      for(size_t i=0; i < 3; ++i)
+      {
+        task_data->gyro_calibration[i] = word_access[3 + 1 + i];
+      }
+    }
+    break;
+  case GYRO_CALIBRATED:
+    for(size_t i=0; i < 3; ++i)
+    {
+      gyro_data[i] = ((float)(word_access[3 + 1 + i] - task_data->gyro_calibration[i])) / task_data->gyro_correction;
+    }
+    break;
+  }
 }
 
 int newjoy_task_setup_mpu6050(nj_task_def_t* task)
@@ -145,6 +236,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task)
     return -1;
   }
 
+  mpu6050_task_data_t* task_data = task->task_data = malloc(sizeof(mpu6050_task_data_t));
   // disable sleep mode and select clock source
   write_byte_to_device_register(
     task->i2c,
@@ -177,13 +269,65 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task)
     1
     );
 
-        /* # explicitly set accel/gyro range */
-        /* self.set_accel_range(MPU6050_ACCEL_FS_2) */
-        /* self.set_gyro_range(MPU6050_GYRO_FS_250) */
+  // setup gyro
+  task_data->gyro_fs = GYRO_1000_FS;
+  uint8_t gyro_range;
+  read_byte_from_device_register(
+    task->i2c,
+    MPU6050_DEFAULT_ADDRESS,
+    MPU6050_RA_GYRO_CONFIG,
+    &gyro_range
+    );
+  gyro_range |= ~(3 << 3);
+  gyro_range |= task_data->gyro_fs << 3;
+  write_byte_to_device_register(
+    task->i2c,
+    MPU6050_DEFAULT_ADDRESS,
+    MPU6050_RA_GYRO_CONFIG,
+    gyro_range
+    );
+  switch(task_data->gyro_fs)
+  {
+  case GYRO_250_FS:
+    task_data->gyro_correction = 32768 / 250.0;
+    break;
+  case GYRO_500_FS:
+    task_data->gyro_correction = 32768 / 500.0;
+    break;
+  case GYRO_1000_FS:
+    task_data->gyro_correction = 32768 / 1000.0;
+    break;
+  case GYRO_2000_FS:
+    task_data->gyro_correction = 32768 / 2000.0;
+    break;
+  }
 
+  task_data->acc_fs = ACC_4_FS;
+  uint8_t acc_range;
+  read_byte_from_device_register(
+    task->i2c,
+    MPU6050_DEFAULT_ADDRESS,
+    MPU6050_RA_ACCEL_CONFIG,
+    &acc_range
+    );
+  acc_range |= ~(3 << 3);
+  acc_range |= task_data->acc_fs << 3;
+  write_byte_to_device_register(
+    task->i2c,
+    MPU6050_DEFAULT_ADDRESS,
+    MPU6050_RA_ACCEL_CONFIG,
+    acc_range
+    );
+
+  task_data->gyro_calibration_buffer_fill = 0;
+  task_data->gyro_calbration_mode = GYRO_UNCALIBRATED;
   return 0;
 }
 
 void newjoy_task_teardown_mpu6050(nj_task_def_t* task)
 {
+  if(task->task_data)
+  {
+    free(task->task_data);
+  }
 }
