@@ -38,4 +38,7 @@ typedef struct {
   nj_task_type type;
   mp_obj_t i2c;
   size_t offset;
+  void* task_data;
 } nj_task_def_t;
+
+typedef int (*TASK_SETUP_FUNCTION)(nj_task_def_t*);

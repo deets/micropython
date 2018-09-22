@@ -51,11 +51,11 @@ STATIC void nj_task()
   ++nj_timer_counter;
   for(size_t i=0; i < nj_task_count; ++i)
   {
-    const nj_task_def_t *current = &nj_tasks[i];
+    nj_task_def_t *current = &nj_tasks[i];
     switch(current->type)
     {
     case NJ_TASK_MPU6050:
-      newjoy_task_mpu6050(nj_buffer + current->offset);
+      newjoy_task_mpu6050(current, nj_buffer + current->offset);
       break;
     }
   }
@@ -134,6 +134,15 @@ STATIC mp_obj_t newjoy_deinit()
   esp_timer_stop(nj_timer_handle);
   esp_timer_delete(nj_timer_handle);
   nj_timer_handle = NULL;
+  for(size_t i=0; i < nj_task_count; ++i)
+  {
+    switch(nj_tasks[i].type)
+    {
+    case NJ_TASK_MPU6050:
+      newjoy_task_teardown_mpu6050(&nj_tasks[i]);
+      break;
+    }
+  }
   return mp_const_none;
 }
 
@@ -156,10 +165,13 @@ STATIC mp_obj_t newjoy_add_task(mp_obj_t i2c, mp_obj_t task_type, mp_obj_t buf_o
   mp_int_t buffer_offset = mp_obj_get_int(buf_offset);
   nj_task_type type = mp_obj_get_int(task_type);
   size_t buffer_usage = 0;
+  TASK_SETUP_FUNCTION task_setup_function = NULL;
+
   switch(type)
   {
   case NJ_TASK_MPU6050:
     buffer_usage = 6; // 6 bytes for the MPU6050
+    task_setup_function = newjoy_task_setup_mpu6050;
     break;
   default:
     mp_raise_ValueError("Unknown task type");
@@ -171,8 +183,13 @@ STATIC mp_obj_t newjoy_add_task(mp_obj_t i2c, mp_obj_t task_type, mp_obj_t buf_o
   nj_task_def_t task_def = {
     .i2c = i2c,
     .type = type,
-    .offset = buffer_offset
+    .offset = buffer_offset,
+    .task_data = NULL
   };
+  if(task_setup_function(&task_def))
+  {
+    mp_raise_ValueError("Couldn't set up task");
+  }
   nj_tasks[nj_task_count++] = task_def;
   return mp_const_none;
 }
