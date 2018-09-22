@@ -76,6 +76,7 @@ typedef struct {
   int16_t gyro_calibration[3];
   int16_t acc_calibration[3];
   int16_t gyro_calibration_buffer[3 * GYRO_CALIBRATION_BUFFER_SIZE];
+  int16_t acc_calibration_buffer[3 * GYRO_CALIBRATION_BUFFER_SIZE];
   size_t gyro_calibration_buffer_fill;
   gyro_calbration_mode_t gyro_calbration_mode;
 } mpu6050_task_data_t;
@@ -163,6 +164,18 @@ STATIC int16_t compute_variance(int16_t* buffer)
 }
 
 
+STATIC int16_t compute_average(int16_t* buffer)
+{
+  int32_t accu = 0;
+  for(size_t i=0; i < GYRO_CALIBRATION_BUFFER_SIZE; ++i)
+  {
+    accu += buffer[i * 3];
+  }
+  accu /= GYRO_CALIBRATION_BUFFER_SIZE;
+  return (int16_t)accu;
+}
+
+
 void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
 {
   mpu6050_task_data_t* task_data = (mpu6050_task_data_t*)task->task_data;
@@ -193,6 +206,7 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
     for(size_t i=0; i < 3; ++i)
     {
       task_data->gyro_calibration_buffer[task_data->gyro_calibration_buffer_fill * 3 + i] = word_access[3 + 1 + i];
+      task_data->acc_calibration_buffer[task_data->gyro_calibration_buffer_fill * 3 + i] = word_access[i];
     }
     task_data->gyro_calibration_buffer_fill = (task_data->gyro_calibration_buffer_fill + 1) % GYRO_CALIBRATION_BUFFER_SIZE;
     // if we reach zero, we have sampled one full ring-buffer of data, so try & compute the variance, and assume calibration
@@ -205,11 +219,10 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
       // I piggy-back on the gyros being stable, as I presume there is also no acceleration going on then
       for(size_t i=0; i < 3; ++i)
       {
-        task_data->gyro_calibration[i] = word_access[3 + 1 + i];
+        task_data->gyro_calibration[i] = compute_average(&task_data->gyro_calibration_buffer[i]);
+        task_data->acc_calibration[i] = compute_average(&task_data->acc_calibration_buffer[i]);
       }
-      task_data->acc_calibration[0] = word_access[0];
-      task_data->acc_calibration[1] = word_access[1];
-      task_data->acc_calibration[2] = word_access[2] - (int16_t)(task_data->acc_correction) ; // assume level orientation!
+      task_data->acc_calibration[2] -= (int16_t)(task_data->acc_correction) ; // assume level orientation!
     }
     break;
   case GYRO_CALIBRATED:
