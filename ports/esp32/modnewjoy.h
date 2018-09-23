@@ -31,7 +31,7 @@
 
 typedef enum
 {
-  NJ_TASK_MPU6050
+  NJ_TASK_MPU6050=1 // don't start at 0, because of the discriptor in the datagram
 } nj_task_type;
 
 typedef struct {
