@@ -196,9 +196,8 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
     task_data->input_buffer[i*2]= task_data->input_buffer[i*2 + 1];
     task_data->input_buffer[i*2 + 1] = h;
   }
-  float* gyro_data = (float*)buffer;
-  float* acc_data = gyro_data + 3;
-  float* euler_data = acc_data + 3;
+  float gyro_data[3];
+  float acc_data[3];
 
   int16_t* word_access = (int16_t*)task_data->input_buffer;
 
@@ -208,7 +207,6 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
     // when uncalibrated, no readings occur!
     gyro_data[0] = gyro_data[1] = gyro_data[2] = 0.0f;
     acc_data[0] = acc_data[1] = acc_data[2] = 0.0f;
-    euler_data[0] = euler_data[1] = euler_data[2] = 0.0f;
     for(size_t i=0; i < 3; ++i)
     {
       task_data->gyro_calibration_buffer[task_data->gyro_calibration_buffer_fill * 3 + i] = word_access[3 + 1 + i];
@@ -242,10 +240,11 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
       gyro_data[0], gyro_data[1], gyro_data[2],
       acc_data[0], acc_data[1], acc_data[2]
       );
-    madgwick_ahrs_compute_angles(
-      &task_data->filter_data,
-      &euler_data[0], &euler_data[1], &euler_data[2]
-      );
+    float* quaternion_data = (float*)buffer;
+    *quaternion_data++ = task_data->filter_data.q0;
+    *quaternion_data++ = task_data->filter_data.q1;
+    *quaternion_data++ = task_data->filter_data.q2;
+    *quaternion_data++ = task_data->filter_data.q3;
     break;
   }
 }
