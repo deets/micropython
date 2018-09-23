@@ -36,6 +36,7 @@
 
 #include <esp_task.h>
 #include <esp_timer.h>
+#include <freertos/event_groups.h>
 
 esp_timer_handle_t nj_timer_handle = NULL;
 int nj_timer_counter = 0;
@@ -45,6 +46,9 @@ size_t nj_buffer_size;
 size_t nj_task_count = 0;
 nj_task_def_t nj_tasks[NJ_MAX_TASKS];
 int nj_period_in_ms;
+
+EventGroupHandle_t nj_event_handle;
+StaticEventGroup_t nj_event_group;
 
 STATIC void nj_task()
 {
@@ -59,6 +63,7 @@ STATIC void nj_task()
       break;
     }
   }
+  xEventGroupSetBits(nj_event_handle, 1);
 }
 
 
@@ -74,6 +79,7 @@ STATIC mp_obj_t newjoy_init(mp_obj_t arg, mp_obj_t buf)
   {
     mp_raise_msg(&mp_type_OSError, "newjoy already initialised, call deinit() first");
   }
+
   mp_buffer_info_t write_buffer;
   mp_get_buffer_raise(buf, &write_buffer, MP_BUFFER_RW);
   if(!write_buffer.len)
@@ -108,6 +114,14 @@ STATIC mp_obj_t newjoy_init(mp_obj_t arg, mp_obj_t buf)
     mp_raise_msg(&mp_type_OSError, "out of memory error");
     break;
   }
+  nj_event_handle = xEventGroupCreateStatic(&nj_event_group);
+  if(!nj_event_handle)
+  {
+    esp_timer_delete(nj_timer_handle);
+    nj_timer_handle = NULL;
+    mp_raise_msg(&mp_type_OSError, "Can't create event group");
+  }
+
   timer_err = esp_timer_start_periodic(
     nj_timer_handle,
     ms * 1000
@@ -157,6 +171,16 @@ STATIC mp_obj_t newjoy_timer_count()
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_timer_count_obj, newjoy_timer_count);
 
+
+STATIC mp_obj_t newjoy_sync()
+{
+  xEventGroupWaitBits(nj_event_handle, 1, 1, pdFALSE, nj_period_in_ms * 10);
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_sync_obj, newjoy_sync);
+
+
 STATIC mp_obj_t newjoy_add_task(mp_obj_t i2c, mp_obj_t task_type, mp_obj_t buf_offset)
 {
   if(nj_task_count + 1 >= NJ_MAX_TASKS)
@@ -201,9 +225,11 @@ STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_newjoy) },
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&newjoy_init_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&newjoy_deinit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sync), MP_ROM_PTR(&newjoy_sync_obj) },
     { MP_ROM_QSTR(MP_QSTR_timer_count), MP_ROM_PTR(&newjoy_timer_count_obj) },
     { MP_ROM_QSTR(MP_QSTR_add_task), MP_ROM_PTR(&newjoy_add_task_obj) },
     { MP_ROM_QSTR(MP_QSTR_TASK_MPU6050), MP_ROM_INT(NJ_TASK_MPU6050) },
+    { MP_ROM_QSTR(MP_QSTR_MPU6050_BUFFER_SIZE), MP_ROM_INT(MPU6050_BUFFER_SIZE) },
 };
 
 STATIC MP_DEFINE_CONST_DICT(module_globals_newjoy, module_globals_table_newjoy);
