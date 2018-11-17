@@ -37,6 +37,7 @@ typedef enum
 typedef struct {
   nj_task_type type;
   mp_obj_t i2c;
+  int address;
   size_t offset;
   void* task_data;
 } nj_task_def_t;

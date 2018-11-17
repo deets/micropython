@@ -181,8 +181,12 @@ STATIC mp_obj_t newjoy_sync()
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_sync_obj, newjoy_sync);
 
 
-STATIC mp_obj_t newjoy_add_task(mp_obj_t i2c, mp_obj_t task_type, mp_obj_t buf_offset)
+STATIC mp_obj_t newjoy_add_task(size_t n_args, const mp_obj_t *args)
 {
+  mp_obj_t i2c = args[0];
+  mp_obj_t task_type = args[2];
+  mp_obj_t buf_offset = args[3];
+
   if(nj_task_count + 1 >= NJ_MAX_TASKS)
   {
     mp_raise_ValueError("Can't register more tasks");
@@ -209,7 +213,8 @@ STATIC mp_obj_t newjoy_add_task(mp_obj_t i2c, mp_obj_t task_type, mp_obj_t buf_o
     .i2c = i2c,
     .type = type,
     .offset = buffer_offset,
-    .task_data = NULL
+    .task_data = NULL,
+    .address = mp_obj_get_int(args[1])
   };
   if(task_setup_function(&task_def, nj_period_in_ms))
   {
@@ -219,7 +224,7 @@ STATIC mp_obj_t newjoy_add_task(mp_obj_t i2c, mp_obj_t task_type, mp_obj_t buf_o
   return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(newjoy_add_task_obj, newjoy_add_task);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR(newjoy_add_task_obj, 4, newjoy_add_task);
 
 STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_newjoy) },

@@ -26,9 +26,8 @@
 
 #include "nj-mpu6050.h"
 #include "madgwick-ahrs.h"
+#include "nj-i2c.h"
 
-#include "mphalport.h"
-#include "extmod/machine_i2c.h"
 #include <string.h>
 
 #define MPU6050_ADDRESS_AD0_LOW 0x68
@@ -84,76 +83,6 @@ typedef struct {
   madgwick_data_t filter_data;
 } mpu6050_task_data_t;
 
-STATIC int read_from_device_register_into_buffer(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t* buf, size_t len)
-{
-  int res;
-  res = mp_machine_soft_i2c_writeto(
-    i2c,
-    address,
-    &reg,
-    1,
-    false
-    );
-  // error handling if the initial register communication failed
-  // 1 is memaddr length
-  if (res != 1) {
-    // must generate STOP
-    mp_machine_soft_i2c_writeto(i2c, address, NULL, 0, true);
-    return res;
-  }
-
-  return mp_machine_soft_i2c_readfrom(
-    i2c,
-    address,
-    buf,
-    len,
-    true
-    );
-}
-
-STATIC int write_from_buffer_into_device_register(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t* buf, size_t len)
-{
-  int res;
-  uint8_t buf2_stack[1 + 12]; // max address size and max buffer size
-  buf2_stack[0] = reg;
-  memcpy(buf2_stack + 1, buf, len);
-  res = mp_machine_soft_i2c_writeto(
-    i2c,
-    address,
-    buf2_stack,
-    len + 1,
-    true
-    );
-  if(res < 0)
-  {
-    return res;
-  }
-  return 0;
-}
-
-
-STATIC int read_byte_from_device_register(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t* buf)
-{
-  return read_from_device_register_into_buffer(
-    i2c,
-    address,
-    reg,
-    buf,
-    1
-    );
-}
-
-
-STATIC int write_byte_to_device_register(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t value)
-{
-  return write_from_buffer_into_device_register(
-    i2c,
-    address,
-    reg,
-    &value,
-    1
-    );
- }
 
 STATIC int16_t compute_variance(int16_t* buffer)
 {
@@ -184,7 +113,7 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
   mpu6050_task_data_t* task_data = (mpu6050_task_data_t*)task->task_data;
   read_from_device_register_into_buffer(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_ACCEL_XOUT_H,
     task_data->input_buffer,
     sizeof(task_data->input_buffer)
@@ -258,7 +187,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   // get our own address back.
   res = read_byte_from_device_register(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_WHO_AM_I,
     &identity
     );
@@ -275,7 +204,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   // disable sleep mode and select clock source
   write_byte_to_device_register(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_PWR_MGMT_1,
     MPU6050_CLOCK_PLL_XGYRO
     );
@@ -283,7 +212,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   // enable all sensors
   write_byte_to_device_register(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_PWR_MGMT_2,
     0
     );
@@ -291,7 +220,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   // set sampling rate
   write_byte_to_device_register(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_SMPLRT_DIV,
     MPU6050_DEFAULT_SAMPLE_RATE
     );
@@ -299,7 +228,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   // enable dlpf
   write_byte_to_device_register(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_CONFIG,
     1
     );
@@ -309,7 +238,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   uint8_t gyro_range;
   read_byte_from_device_register(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_GYRO_CONFIG,
     &gyro_range
     );
@@ -317,7 +246,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   gyro_range |= task_data->gyro_fs << 3;
   write_byte_to_device_register(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_GYRO_CONFIG,
     gyro_range
     );
@@ -341,7 +270,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   uint8_t acc_range;
   read_byte_from_device_register(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_ACCEL_CONFIG,
     &acc_range
     );
@@ -349,7 +278,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   acc_range |= task_data->acc_fs << 3;
   write_byte_to_device_register(
     task->i2c,
-    MPU6050_DEFAULT_ADDRESS,
+    task->address,
     MPU6050_RA_ACCEL_CONFIG,
     acc_range
     );
