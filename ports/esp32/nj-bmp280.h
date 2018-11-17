@@ -25,22 +25,10 @@
  */
 #pragma once
 
-#include "py/runtime.h"
+#include "modnewjoy.h"
 
-#define NJ_MAX_TASKS 8
+#define BMP280_BUFFER_SIZE 4 // long int pressure
 
-typedef enum
-{
-  NJ_TASK_MPU6050=1, // don't start at 0, because of the discriptor in the datagram
-  NJ_TASK_BMP280=2
-} nj_task_type;
-
-typedef struct {
-  nj_task_type type;
-  mp_obj_t i2c;
-  int address;
-  size_t offset;
-  void* task_data;
-} nj_task_def_t;
-
-typedef int (*TASK_SETUP_FUNCTION)(nj_task_def_t*, int period);
+int newjoy_task_setup_bmp280(nj_task_def_t*, int period);
+void newjoy_task_bmp280(nj_task_def_t* task, uint8_t *buffer);
+void newjoy_task_teardown_bmp280(nj_task_def_t*);

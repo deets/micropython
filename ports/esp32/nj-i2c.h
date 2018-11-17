@@ -23,24 +23,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#pragma once
+#include "py/obj.h"
 
-#include "py/runtime.h"
+int read_from_device_register_into_buffer(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t* buf, size_t len);
 
-#define NJ_MAX_TASKS 8
 
-typedef enum
-{
-  NJ_TASK_MPU6050=1, // don't start at 0, because of the discriptor in the datagram
-  NJ_TASK_BMP280=2
-} nj_task_type;
+int write_from_buffer_into_device_register(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t* buf, size_t len);
 
-typedef struct {
-  nj_task_type type;
-  mp_obj_t i2c;
-  int address;
-  size_t offset;
-  void* task_data;
-} nj_task_def_t;
+int read_byte_from_device_register(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t* buf);
 
-typedef int (*TASK_SETUP_FUNCTION)(nj_task_def_t*, int period);
+int write_byte_to_device_register(mp_obj_t i2c, uint16_t address, uint8_t reg, uint8_t value);

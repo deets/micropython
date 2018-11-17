@@ -26,6 +26,7 @@
 
 #include "modnewjoy.h"
 #include "nj-mpu6050.h"
+#include "nj-bmp280.h"
 
 #include <stdio.h>
 
@@ -60,6 +61,9 @@ STATIC void nj_task()
     {
     case NJ_TASK_MPU6050:
       newjoy_task_mpu6050(current, nj_buffer + current->offset);
+      break;
+    case NJ_TASK_BMP280:
+      newjoy_task_bmp280(current, nj_buffer + current->offset);
       break;
     }
   }
@@ -156,6 +160,9 @@ STATIC mp_obj_t newjoy_deinit()
     case NJ_TASK_MPU6050:
       newjoy_task_teardown_mpu6050(&nj_tasks[i]);
       break;
+    case NJ_TASK_BMP280:
+      newjoy_task_teardown_bmp280(&nj_tasks[i]);
+      break;
     }
   }
   return mp_const_none;
@@ -202,6 +209,10 @@ STATIC mp_obj_t newjoy_add_task(size_t n_args, const mp_obj_t *args)
     buffer_usage = MPU6050_BUFFER_SIZE;
     task_setup_function = newjoy_task_setup_mpu6050;
     break;
+  case NJ_TASK_BMP280:
+    buffer_usage = BMP280_BUFFER_SIZE;
+    task_setup_function = newjoy_task_setup_bmp280;
+    break;
   default:
     mp_raise_ValueError("Unknown task type");
   }
@@ -235,6 +246,8 @@ STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR_add_task), MP_ROM_PTR(&newjoy_add_task_obj) },
     { MP_ROM_QSTR(MP_QSTR_TASK_MPU6050), MP_ROM_INT(NJ_TASK_MPU6050) },
     { MP_ROM_QSTR(MP_QSTR_MPU6050_BUFFER_SIZE), MP_ROM_INT(MPU6050_BUFFER_SIZE) },
+    { MP_ROM_QSTR(MP_QSTR_TASK_BMP280), MP_ROM_INT(NJ_TASK_BMP280) },
+    { MP_ROM_QSTR(MP_QSTR_BMP280_BUFFER_SIZE), MP_ROM_INT(BMP280_BUFFER_SIZE) },
 };
 
 STATIC MP_DEFINE_CONST_DICT(module_globals_newjoy, module_globals_table_newjoy);
