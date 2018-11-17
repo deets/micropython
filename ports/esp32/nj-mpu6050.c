@@ -286,16 +286,16 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   switch(task_data->acc_fs)
   {
   case ACC_2_FS:
-    task_data->acc_correction =32768.0 / 2;
+    task_data->acc_correction = 32768.0 / 2;
     break;
   case ACC_4_FS:
-    task_data->acc_correction =32768.0 / 4;
+    task_data->acc_correction = 32768.0 / 4;
     break;
   case ACC_8_FS:
-    task_data->acc_correction =32768.0 / 8;
+    task_data->acc_correction = 32768.0 / 8;
     break;
   case ACC_16_FS:
-    task_data->acc_correction =32768.0 / 16;
+    task_data->acc_correction = 32768.0 / 16;
     break;
   }
 
