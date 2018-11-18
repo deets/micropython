@@ -174,6 +174,9 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
     *quaternion_data++ = task_data->filter_data.q1;
     *quaternion_data++ = task_data->filter_data.q2;
     *quaternion_data++ = task_data->filter_data.q3;
+    *quaternion_data++ = acc_data[0];
+    *quaternion_data++ = acc_data[1];
+    *quaternion_data++ = acc_data[2];
     break;
   }
 }

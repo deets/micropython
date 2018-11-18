@@ -27,7 +27,8 @@
 
 #include "modnewjoy.h"
 
-#define MPU6050_BUFFER_SIZE 4 * 4 // four floats quaternion
+#define MPU6050_BUFFER_SIZE 4 * 4 + 4 * 3// four floats quaternion, 3 * accelerometer
+
 int newjoy_task_setup_mpu6050(nj_task_def_t*, int period);
 void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer);
 void newjoy_task_teardown_mpu6050(nj_task_def_t*);
