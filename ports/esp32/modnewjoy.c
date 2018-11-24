@@ -150,8 +150,11 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(newjoy_init_obj, newjoy_init);
 
 STATIC mp_obj_t newjoy_deinit()
 {
-  esp_timer_stop(nj_timer_handle);
-  esp_timer_delete(nj_timer_handle);
+  if(nj_timer_handle)
+  {
+    esp_timer_stop(nj_timer_handle);
+    esp_timer_delete(nj_timer_handle);
+  }
   nj_timer_handle = NULL;
   for(size_t i=0; i < nj_task_count; ++i)
   {
