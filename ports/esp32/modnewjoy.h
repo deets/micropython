@@ -27,7 +27,7 @@
 
 #include "py/runtime.h"
 
-#define NJ_MAX_TASKS 8
+#define NJ_MAX_TASKS 16
 
 typedef enum
 {
