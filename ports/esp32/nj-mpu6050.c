@@ -198,7 +198,7 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
   {
     return res;
   }
-  if(identity != MPU6050_DEFAULT_ADDRESS)
+  if(identity != MPU6050_DEFAULT_ADDRESS && identity != 0x72)
   {
     return -1;
   }
