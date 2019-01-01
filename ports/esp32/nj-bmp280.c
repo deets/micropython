@@ -52,7 +52,8 @@ int newjoy_task_setup_bmp280(nj_task_def_t* task, int period)
     BMP280_ID,
     &id_register
     );
-  assert(id_register == 'X');
+//  printf("id_register: %i\n", id_register);
+//  assert(id_register == 'X');
   write_byte_to_device_register(
     task->i2c,
     task->address,
