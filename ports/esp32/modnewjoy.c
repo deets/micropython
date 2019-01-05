@@ -27,6 +27,7 @@
 #include "modnewjoy.h"
 #include "nj-mpu6050.h"
 #include "nj-bmp280.h"
+#include "nj-nrf24.h"
 
 #include <stdio.h>
 
@@ -168,6 +169,7 @@ STATIC mp_obj_t newjoy_deinit()
       break;
     }
   }
+  nrf24_teardown();
   return mp_const_none;
 }
 
@@ -240,6 +242,69 @@ STATIC mp_obj_t newjoy_add_task(size_t n_args, const mp_obj_t *args)
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR(newjoy_add_task_obj, 4, newjoy_add_task);
 
+STATIC mp_obj_t newjoy_nrf24_setup()
+{
+  nrf24_error_t res = nrf24_setup();
+  switch(res)
+  {
+  case NRF24_ERROR_OK:
+    break;
+  case NRF24_ERROR_ALREADY_SETUP:
+    mp_raise_msg(&mp_type_OSError, "nrf24_setup already setup, call nrf24_teardown!");
+    break;
+  case NRF24_ERROR_MALLOC:
+    mp_raise_msg(&mp_type_OSError, "nrf24_setup malloc error!");
+    break;
+  case NRF24_ERROR_INVALID_ARG:
+    mp_raise_msg(&mp_type_OSError, "nrf24_setup invalid arg!");
+    break;
+  case NRF24_ERROR_HOST_IN_USE:
+    mp_raise_msg(&mp_type_OSError, "nrf24_setup spi host already in use!");
+    break;
+  case NRF24_ERROR_NO_CS_SLOT:
+    mp_raise_msg(&mp_type_OSError, "nrf24_setup no CS slot available!");
+    break;
+  case NRF24_ERROR_UNKNOWN:
+    mp_raise_msg(&mp_type_OSError, "nrf24_setup error unknown!");
+    break;
+  }
+ return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_nrf24_setup_obj, newjoy_nrf24_setup);
+
+STATIC mp_obj_t newjoy_nrf24_teardown()
+{
+  nrf24_teardown();
+ return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_nrf24_teardown_obj, newjoy_nrf24_teardown);
+
+STATIC mp_obj_t newjoy_nrf24_run_spoke(mp_obj_t local_address_obj, mp_obj_t hub_address_obj)
+{
+  mp_buffer_info_t local_address_buffer;
+  mp_get_buffer_raise(local_address_obj, &local_address_buffer, MP_BUFFER_READ);
+  if(local_address_buffer.len != 5)
+  {
+    mp_raise_ValueError("local_address must be 5 bytes!");
+  }
+  mp_buffer_info_t hub_address_buffer;
+  mp_get_buffer_raise(hub_address_obj, &hub_address_buffer, MP_BUFFER_READ);
+  if(hub_address_buffer.len != 5)
+  {
+    mp_raise_ValueError("hub_address must be 5 bytes!");
+  }
+
+  if(nrf24_run_spoke(local_address_buffer.buf, hub_address_buffer.buf))
+  {
+    mp_raise_msg(&mp_type_OSError, "nrf24_run_spoke error!");
+  }
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(newjoy_nrf24_run_spoke_obj, newjoy_nrf24_run_spoke);
+
 STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_newjoy) },
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&newjoy_init_obj) },
@@ -247,6 +312,11 @@ STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR_sync), MP_ROM_PTR(&newjoy_sync_obj) },
     { MP_ROM_QSTR(MP_QSTR_timer_count), MP_ROM_PTR(&newjoy_timer_count_obj) },
     { MP_ROM_QSTR(MP_QSTR_add_task), MP_ROM_PTR(&newjoy_add_task_obj) },
+
+    { MP_ROM_QSTR(MP_QSTR_nrf24_setup), MP_ROM_PTR(&newjoy_nrf24_setup_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nrf24_teardown), MP_ROM_PTR(&newjoy_nrf24_teardown_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nrf24_run_spoke), MP_ROM_PTR(&newjoy_nrf24_run_spoke_obj) },
+
     { MP_ROM_QSTR(MP_QSTR_TASK_MPU6050), MP_ROM_INT(NJ_TASK_MPU6050) },
     { MP_ROM_QSTR(MP_QSTR_MPU6050_BUFFER_SIZE), MP_ROM_INT(MPU6050_BUFFER_SIZE) },
     { MP_ROM_QSTR(MP_QSTR_TASK_BMP280), MP_ROM_INT(NJ_TASK_BMP280) },
