@@ -33,6 +33,7 @@ static nrf24_data_t* nrf = 0;
 #define CHANNEL 124 // beyond WIFI@2.4GHz
 #define PAYLOAD_SIZE 32
 #define SEND_TIMEOUT 50 // ms.
+#define SPI_SPEED 8 * 1000*1000
 
 // nRF24L01+ registers
 #define CONFIG      0x00
@@ -355,7 +356,7 @@ int nrf24_setup(const char local_address[5], const char remote_address[5])
   };
 
   spi_device_interface_config_t devcfg = {
-    .clock_speed_hz=4 * 1000*1000,
+    .clock_speed_hz=SPI_SPEED,
     .mode=0,                                //SPI mode 0
     .spics_io_num=CS,               //CS pin
     .queue_size=1,
