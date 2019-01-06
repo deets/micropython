@@ -310,7 +310,7 @@ static void nrf24_send_start(const char* payload, int payload_size)
   }
 
   struct spi_transaction_t t = { 0 };
-  t.length = 8 + payload_size * 8;
+  t.length = 8 + PAYLOAD_SIZE * 8;
   t.tx_buffer = nrf->tx_work_buffer;
   t.rx_buffer = nrf->rx_work_buffer;
   t.flags = 0;
@@ -439,6 +439,7 @@ int nrf24_any()
 
 static int nrf24_send_done()
 {
+  assert(nrf);
   if(!(nrf24_reg_read(STATUS) & (TX_DS | MAX_RT)))
   {
     return -1;
@@ -465,13 +466,14 @@ int64_t ticks_diff(int64_t end, int64_t start)
 
 int nrf24_send(const char* payload, int payload_size)
 {
+  assert(nrf);
   nrf24_send_start(payload, payload_size);
 
   int64_t start = esp_timer_get_time();
   int result = -1;
   while(result == -1 && ticks_diff(esp_timer_get_time(), start) < SEND_TIMEOUT * 1000)
   {
-    result = nrf24_send_done(); // -1 nothing, 1 == success, 2 == fail
+    result = nrf24_send_done(); // -1 timeout, 1 == success, 2 == fail
   }
   return result;
 }
@@ -479,6 +481,7 @@ int nrf24_send(const char* payload, int payload_size)
 
 size_t nrf24_recv(unsigned char* buffer, size_t len)
 {
+  assert(nrf);
   esp_err_t res;
   nrf->tx_work_buffer[0] = R_RX_PAYLOAD;
 

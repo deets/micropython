@@ -16,18 +16,14 @@ TX_SWITCH_DELAY_US = START_LISTENING_TIMEOUT_US + 500
 newjoy.nrf24_setup(IRIS[:5], OTTO[:5])
 
 newjoy.nrf24_start_listening()
-
 while True:
-    newjoy.nrf24_start_listening()
-    while not newjoy.nrf24_any():
-        pass
-    # consume the messages away
-    while newjoy.nrf24_any():
-        print(newjoy.nrf24_recv())
-    utime.sleep_us(TX_SWITCH_DELAY_US)
-    newjoy.nrf24_stop_listening()
-    print(newjoy.nrf24_send(b"PONG"))
-
-
+    if newjoy.nrf24_any():
+        print("got message")
+        while newjoy.nrf24_any():
+            print(newjoy.nrf24_recv())
+        utime.sleep_us(TX_SWITCH_DELAY_US)
+        newjoy.nrf24_stop_listening()
+        print(newjoy.nrf24_send(b"PONG"))
+        newjoy.nrf24_start_listening()
 
 #newjoy.nrf24_teardown()
