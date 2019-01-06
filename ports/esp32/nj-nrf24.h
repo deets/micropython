@@ -1,6 +1,8 @@
 // Copyright: 2019, Diez B. Roggisch, Berlin, all rights reserved
 #pragma once
 
+#include <stddef.h>
+
 typedef enum {
   NRF24_ERROR_OK,
   NRF24_ERROR_ALREADY_SETUP,
@@ -18,3 +20,5 @@ void nrf24_teardown();
 void nrf24_start_listening();
 void nrf24_stop_listening();
 int nrf24_any();
+int nrf24_send(const char* payload, int payload_length);
+size_t nrf24_recv(unsigned char* buffer, size_t len);

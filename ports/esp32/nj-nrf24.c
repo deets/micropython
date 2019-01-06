@@ -2,6 +2,9 @@
 
 #include "driver/spi_master.h"
 #include "mphalport.h"
+#include "py/mpconfig.h"
+
+#include <esp_timer.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -29,7 +32,7 @@ static nrf24_data_t* nrf = 0;
 #define RETRY_PAUSE 3 // times 250us
 #define CHANNEL 124 // beyond WIFI@2.4GHz
 #define PAYLOAD_SIZE 32
-
+#define SEND_TIMEOUT 50 // ms.
 
 // nRF24L01+ registers
 #define CONFIG      0x00
@@ -117,7 +120,7 @@ static void nrf24_ce(uint8_t value)
 }
 
 
-static void nrf24_reg_write(uint8_t reg, uint8_t value)
+static uint8_t nrf24_reg_write(uint8_t reg, uint8_t value)
 {
   esp_err_t res;
   struct spi_transaction_t t = { 0 };
@@ -128,6 +131,9 @@ static void nrf24_reg_write(uint8_t reg, uint8_t value)
   t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
   res = spi_device_transmit(nrf->spi, &t);
   ESP_ERROR_CHECK(res);
+  // according to spec, the STATUS register is
+  // *always* shifted out with the first byte coming in
+  return t.rx_data[0];
 }
 
 
@@ -284,6 +290,39 @@ static void nrf24_open_rx_pipe(uint8_t pipe_id, const char address[5], uint8_t p
 }
 
 
+static void nrf24_send_start(const char* payload, int payload_size)
+{
+  esp_err_t res;
+  assert(payload_size >= 1 && payload_size <= PAYLOAD_SIZE);
+
+  nrf24_reg_write(CONFIG, (nrf24_reg_read(CONFIG) | PWR_UP) & ~PRIM_RX);
+  nrf24_usleep(150); // switching the RX to TX takes this long
+
+  nrf->tx_work_buffer[0] = W_TX_PAYLOAD;
+  for(size_t i=0; i < payload_size; ++i)
+  {
+    nrf->tx_work_buffer[1 + i] = payload[i];
+  }
+  // clear out all bytes after given size
+  for(size_t i=payload_size; i < PAYLOAD_SIZE; ++i)
+  {
+    nrf->tx_work_buffer[1 + i] = 0;
+  }
+
+  struct spi_transaction_t t = { 0 };
+  t.length = 8 + payload_size * 8;
+  t.tx_buffer = nrf->tx_work_buffer;
+  t.rx_buffer = nrf->rx_work_buffer;
+  t.flags = 0;
+  res = spi_device_transmit(nrf->spi, &t);
+  ESP_ERROR_CHECK(res);
+
+  nrf24_ce(1);
+  nrf24_usleep(15);  // needs to be >10us to activate transmission
+  nrf24_ce(0);
+}
+
+
 int nrf24_setup(const char local_address[5], const char remote_address[5])
 {
   int res = 0;
@@ -395,4 +434,72 @@ int nrf24_any()
 {
   assert(nrf);
   return !(nrf24_reg_read(FIFO_STATUS) & RX_EMPTY);
+}
+
+
+static int nrf24_send_done()
+{
+  if(!(nrf24_reg_read(STATUS) & (TX_DS | MAX_RT)))
+  {
+    return -1;
+  }
+  // either finished or failed: get and clear status flags, power down
+  uint8_t status = nrf24_reg_write(STATUS, RX_DR | TX_DS | MAX_RT);
+  nrf24_reg_write(CONFIG, nrf24_reg_read(CONFIG) & ~PWR_UP);
+  return (status & TX_DS) ? 1 : 2;
+}
+
+#define UTIME_TICKS_PERIOD (1ull << 63)
+
+int64_t ticks_diff(int64_t end, int64_t start)
+{
+  return ((end - start + UTIME_TICKS_PERIOD / 2) & (UTIME_TICKS_PERIOD - 1));
+  /* uint64_t res = end - start; */
+  /* if(res < 0) */
+  /* { */
+  /*   res += (1ull << 63); */
+  /* } */
+  /* return res; */
+}
+
+
+int nrf24_send(const char* payload, int payload_size)
+{
+  nrf24_send_start(payload, payload_size);
+
+  int64_t start = esp_timer_get_time();
+  int result = -1;
+  while(result == -1 && ticks_diff(esp_timer_get_time(), start) < SEND_TIMEOUT * 1000)
+  {
+    result = nrf24_send_done(); // -1 nothing, 1 == success, 2 == fail
+  }
+  return result;
+}
+
+
+size_t nrf24_recv(unsigned char* buffer, size_t len)
+{
+  esp_err_t res;
+  nrf->tx_work_buffer[0] = R_RX_PAYLOAD;
+
+  for(size_t i=0; i < PAYLOAD_SIZE; ++i)
+  {
+    nrf->tx_work_buffer[1 + i] = 0;
+    nrf->rx_work_buffer[1 + i] = 0;
+  }
+
+  struct spi_transaction_t t = { 0 };
+  t.length = 8 + PAYLOAD_SIZE * 8;
+  t.tx_buffer = nrf->tx_work_buffer;
+  t.rx_buffer = nrf->rx_work_buffer;
+  t.flags = 0;
+  res = spi_device_transmit(nrf->spi, &t);
+  ESP_ERROR_CHECK(res);
+  nrf24_reg_write(STATUS, RX_DR);
+  size_t to_copy = len < PAYLOAD_SIZE ? len : PAYLOAD_SIZE;
+  for(size_t i=0; i < to_copy; ++i)
+  {
+    buffer[i] = nrf->rx_work_buffer[1 + i];
+  }
+  return to_copy;
 }

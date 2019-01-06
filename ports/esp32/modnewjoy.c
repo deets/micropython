@@ -325,6 +325,31 @@ STATIC mp_obj_t newjoy_nrf24_any()
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_nrf24_any_obj, newjoy_nrf24_any);
 
 
+STATIC mp_obj_t newjoy_nrf24_recv()
+{
+  byte buffer[32];
+  size_t received = nrf24_recv(buffer, 32);
+  return mp_obj_new_bytes(buffer, received);
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_nrf24_recv_obj, newjoy_nrf24_recv);
+
+
+STATIC mp_obj_t newjoy_nrf24_send(mp_obj_t payload)
+{
+  mp_buffer_info_t payload_buffer;
+  mp_get_buffer_raise(payload, &payload_buffer, MP_BUFFER_READ);
+  if(payload_buffer.len < 1 || payload_buffer.len > 32)
+  {
+    mp_raise_ValueError("payload size must be between 1 and 32!");
+  }
+
+  return mp_obj_new_int(nrf24_send(payload_buffer.buf, payload_buffer.len));
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_send_obj, newjoy_nrf24_send);
+
+
 STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_newjoy) },
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&newjoy_init_obj) },
@@ -338,6 +363,8 @@ STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR_nrf24_start_listening), MP_ROM_PTR(&newjoy_nrf24_start_listening_obj) },
     { MP_ROM_QSTR(MP_QSTR_nrf24_stop_listening), MP_ROM_PTR(&newjoy_nrf24_stop_listening_obj) },
     { MP_ROM_QSTR(MP_QSTR_nrf24_any), MP_ROM_PTR(&newjoy_nrf24_any_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nrf24_recv), MP_ROM_PTR(&newjoy_nrf24_recv_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nrf24_send), MP_ROM_PTR(&newjoy_nrf24_send_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_TASK_MPU6050), MP_ROM_INT(NJ_TASK_MPU6050) },
     { MP_ROM_QSTR(MP_QSTR_MPU6050_BUFFER_SIZE), MP_ROM_INT(MPU6050_BUFFER_SIZE) },
