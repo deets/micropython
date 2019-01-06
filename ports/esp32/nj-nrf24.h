@@ -8,10 +8,13 @@ typedef enum {
   NRF24_ERROR_INVALID_ARG,
   NRF24_ERROR_HOST_IN_USE,
   NRF24_ERROR_NO_CS_SLOT,
+  NRF24_ERROR_HARDWARE_NOT_RESPONDING,
   NRF24_ERROR_UNKNOWN
 } nrf24_error_t;
 
 
-int nrf24_setup();
+int nrf24_setup(const char local_address[5], const char remote_address[5]);
 void nrf24_teardown();
-int nrf24_run_spoke(const char local_address[5], const char hub_address[5]);
+void nrf24_start_listening();
+void nrf24_stop_listening();
+int nrf24_any();
