@@ -242,7 +242,7 @@ STATIC mp_obj_t newjoy_add_task(size_t n_args, const mp_obj_t *args)
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR(newjoy_add_task_obj, 4, newjoy_add_task);
 
-STATIC mp_obj_t newjoy_nrf24_setup(mp_obj_t local_address_obj, mp_obj_t hub_address_obj)
+STATIC mp_obj_t newjoy_nrf24_setup(mp_obj_t local_address_obj)
 {
   mp_buffer_info_t local_address_buffer;
   mp_get_buffer_raise(local_address_obj, &local_address_buffer, MP_BUFFER_READ);
@@ -251,14 +251,7 @@ STATIC mp_obj_t newjoy_nrf24_setup(mp_obj_t local_address_obj, mp_obj_t hub_addr
     mp_raise_ValueError("local_address must be 5 bytes!");
   }
 
-  mp_buffer_info_t hub_address_buffer;
-  mp_get_buffer_raise(hub_address_obj, &hub_address_buffer, MP_BUFFER_READ);
-  if(hub_address_buffer.len != 5)
-  {
-    mp_raise_ValueError("hub_address must be 5 bytes!");
-  }
-
-  nrf24_error_t res = nrf24_setup(local_address_buffer.buf, hub_address_buffer.buf);
+  nrf24_error_t res = nrf24_setup(local_address_buffer.buf);
 
   switch(res)
   {
@@ -289,7 +282,24 @@ STATIC mp_obj_t newjoy_nrf24_setup(mp_obj_t local_address_obj, mp_obj_t hub_addr
  return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(newjoy_nrf24_setup_obj, newjoy_nrf24_setup);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_setup_obj, newjoy_nrf24_setup);
+
+
+STATIC mp_obj_t newjoy_nrf24_open_tx_pipe(mp_obj_t remote_address_obj)
+{
+  mp_buffer_info_t remote_address_buffer;
+  mp_get_buffer_raise(remote_address_obj, &remote_address_buffer, MP_BUFFER_READ);
+
+  if(remote_address_buffer.len != 5)
+  {
+    mp_raise_ValueError("remote_address must be 5 bytes!");
+  }
+  nrf24_open_tx_pipe(remote_address_buffer.buf, 32);
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_open_tx_pipe_obj, newjoy_nrf24_open_tx_pipe);
+
 
 STATIC mp_obj_t newjoy_nrf24_teardown()
 {
@@ -325,6 +335,32 @@ STATIC mp_obj_t newjoy_nrf24_any()
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_nrf24_any_obj, newjoy_nrf24_any);
 
 
+STATIC mp_obj_t newjoy_nrf24_clear_error_info()
+{
+  nrf24_clear_error_info();
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_nrf24_clear_error_info_obj, newjoy_nrf24_clear_error_info);
+
+
+STATIC mp_obj_t newjoy_nrf24_error_info()
+{
+  mp_obj_t res = mp_obj_new_dict(6);
+
+  nrf24_error_info_t info = nrf24_error_info();
+  mp_obj_dict_store(res, MP_OBJ_NEW_QSTR(MP_QSTR_ok), mp_obj_new_int(info.ok));
+  mp_obj_dict_store(res, MP_OBJ_NEW_QSTR(MP_QSTR_max_rt), mp_obj_new_int(info.max_rt));
+  mp_obj_dict_store(res, MP_OBJ_NEW_QSTR(MP_QSTR_timeout), mp_obj_new_int(info.timeout));
+  mp_obj_dict_store(res, MP_OBJ_NEW_QSTR(MP_QSTR_spurious), mp_obj_new_int(info.spurious));
+  mp_obj_dict_store(res, MP_OBJ_NEW_QSTR(MP_QSTR_arc_cnt), mp_obj_new_int(info.last_observe_tx & 0xf));
+  mp_obj_dict_store(res, MP_OBJ_NEW_QSTR(MP_QSTR_plos_cnt), mp_obj_new_int((info.last_observe_tx >> 4)));
+  return res;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_nrf24_error_info_obj, newjoy_nrf24_error_info);
+
+
 STATIC mp_obj_t newjoy_nrf24_recv()
 {
   byte buffer[32];
@@ -350,6 +386,57 @@ STATIC mp_obj_t newjoy_nrf24_send(mp_obj_t payload)
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_send_obj, newjoy_nrf24_send);
 
 
+STATIC mp_obj_t newjoy_nrf24_spoke_to_hub_send(mp_obj_t payload)
+{
+  mp_buffer_info_t payload_buffer;
+  mp_get_buffer_raise(payload, &payload_buffer, MP_BUFFER_READ);
+  return mp_obj_new_int(
+    nrf24_spoke_to_hub_send(
+      payload_buffer.buf,
+      payload_buffer.len)
+    );
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_spoke_to_hub_send_obj, newjoy_nrf24_spoke_to_hub_send);
+
+
+STATIC mp_obj_t newjoy_nrf24_hub_to_spoke(mp_obj_t remote_address_obj)
+{
+  mp_buffer_info_t remote_address_buffer;
+  mp_get_buffer_raise(remote_address_obj, &remote_address_buffer, MP_BUFFER_READ);
+
+  if(remote_address_buffer.len != 5)
+  {
+    mp_raise_ValueError("remote_address must be 5 bytes!");
+  }
+
+  uint8_t* buffer = 0;
+  size_t received = 0;
+  nrf24_hub_to_spoke_error_t res = nrf24_hub_to_spoke(
+    remote_address_buffer.buf,
+    &buffer,
+    &received
+    );
+  switch(res)
+  {
+  case NRF24_HUB_ERROR_OK:
+    break;
+  case NRF24_HUB_SEND_FAILED:
+    mp_raise_msg(&mp_type_OSError, "NRF24_HUB_SEND_FAILED");
+    break;
+  case NRF24_HUB_RX_TIMEOUT:
+    mp_raise_msg(&mp_type_OSError, "NRF24_HUB_RX_TIMEOUT");
+    break;
+  case NRF24_HUB_PAYLOAD_TOO_LONG:
+    mp_raise_msg(&mp_type_OSError, "NRF24_HUB_PAYLOAD_TOO_LONG");
+    break;
+  }
+  return mp_obj_new_bytes(buffer, received);
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_hub_to_spoke_obj, newjoy_nrf24_hub_to_spoke);
+
+
 STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_newjoy) },
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&newjoy_init_obj) },
@@ -365,11 +452,26 @@ STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR_nrf24_any), MP_ROM_PTR(&newjoy_nrf24_any_obj) },
     { MP_ROM_QSTR(MP_QSTR_nrf24_recv), MP_ROM_PTR(&newjoy_nrf24_recv_obj) },
     { MP_ROM_QSTR(MP_QSTR_nrf24_send), MP_ROM_PTR(&newjoy_nrf24_send_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nrf24_open_tx_pipe), MP_ROM_PTR(&newjoy_nrf24_open_tx_pipe_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nrf24_clear_error_info), MP_ROM_PTR(&newjoy_nrf24_clear_error_info_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nrf24_error_info), MP_ROM_PTR(&newjoy_nrf24_error_info_obj) },
+    // hub
+    { MP_ROM_QSTR(MP_QSTR_nrf24_hub_to_spoke), MP_ROM_PTR(&newjoy_nrf24_hub_to_spoke_obj) },
+
+    // spoke
+    { MP_ROM_QSTR(MP_QSTR_nrf24_spoke_to_hub_send), MP_ROM_PTR(&newjoy_nrf24_spoke_to_hub_send_obj) },
+
 
     { MP_ROM_QSTR(MP_QSTR_TASK_MPU6050), MP_ROM_INT(NJ_TASK_MPU6050) },
     { MP_ROM_QSTR(MP_QSTR_MPU6050_BUFFER_SIZE), MP_ROM_INT(MPU6050_BUFFER_SIZE) },
     { MP_ROM_QSTR(MP_QSTR_TASK_BMP280), MP_ROM_INT(NJ_TASK_BMP280) },
     { MP_ROM_QSTR(MP_QSTR_BMP280_BUFFER_SIZE), MP_ROM_INT(BMP280_BUFFER_SIZE) },
+    // constants for send errrors
+    { MP_ROM_QSTR(MP_QSTR_NRF24_SEND_ERROR_NONE), MP_ROM_INT(NRF24_SEND_ERROR_NONE) },
+    { MP_ROM_QSTR(MP_QSTR_NRF24_SEND_ERROR_OK), MP_ROM_INT(NRF24_SEND_ERROR_OK) },
+    { MP_ROM_QSTR(MP_QSTR_NRF24_SEND_ERROR_MAX_RT), MP_ROM_INT(NRF24_SEND_ERROR_MAX_RT) },
+    { MP_ROM_QSTR(MP_QSTR_NRF24_SEND_ERROR_SPURIOUS), MP_ROM_INT(NRF24_SEND_ERROR_SPURIOUS) },
+
 };
 
 STATIC MP_DEFINE_CONST_DICT(module_globals_newjoy, module_globals_table_newjoy);

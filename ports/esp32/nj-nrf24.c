@@ -11,11 +11,14 @@
 #include <string.h>
 
 #define WORK_BUFFER_SIZE 64
+#define HUB_WORK_BUFFER_SIZE 512
 
 typedef struct {
   spi_device_handle_t spi;
   uint8_t tx_work_buffer[WORK_BUFFER_SIZE];
   uint8_t rx_work_buffer[WORK_BUFFER_SIZE];
+  uint8_t hub_work_buffer[HUB_WORK_BUFFER_SIZE];
+  nrf24_error_info_t error_info;
 } nrf24_data_t;
 
 static nrf24_data_t* nrf = 0;
@@ -26,14 +29,19 @@ static nrf24_data_t* nrf = 0;
 #define MISO 22
 #define MOSI 23
 #define SCK 18
+#define SENDING_DEBUG_PIN 13
 
 // global configuration settings
-#define RETRIES 4
+#define RETRIES 15
 #define RETRY_PAUSE 3 // times 250us
 #define CHANNEL 124 // beyond WIFI@2.4GHz
 #define PAYLOAD_SIZE 32
 #define SEND_TIMEOUT 50 // ms.
-#define SPI_SPEED 8 * 1000*1000
+#define SPI_SPEED 2 * 1000*1000
+#define RECEIVE_TIMEOUT_MS 5
+#define START_LISTENING_TIMEOUT_US 130
+#define TX_SWITCH_DELAY_US (START_LISTENING_TIMEOUT_US + 50)
+
 
 // nRF24L01+ registers
 #define CONFIG      0x00
@@ -81,7 +89,6 @@ static nrf24_data_t* nrf = 0;
 #define FLUSH_RX     0xe2
 #define NOP          0xff
 
-#define START_LISTENING_TIMEOUT_US 130
 
 #define SPI_ERROR_CHECK \
   switch(spi_res) \
@@ -121,11 +128,17 @@ static void nrf24_ce(uint8_t value)
 }
 
 
+static void nrf24_sending(uint8_t value)
+{
+  gpio_set_level(SENDING_DEBUG_PIN, value);
+}
+
+
 static uint8_t nrf24_reg_write(uint8_t reg, uint8_t value)
 {
   esp_err_t res;
   struct spi_transaction_t t = { 0 };
-  //printf("reg_write %i %i\n", reg, value);
+  //printf("rw %i %i\n", reg, value);
   t.length = 16;
   t.tx_data[0] = 0x20 | reg; // this marks the register to be written
   t.tx_data[1] = value;
@@ -142,7 +155,7 @@ static void nrf24_reg_write_bytes(uint8_t reg, const uint8_t* buf, size_t len)
 {
   esp_err_t res;
   assert(len + 1 < WORK_BUFFER_SIZE);
-  //printf("reg_write_bytes %i", reg);
+  //printf("rwb %i", reg);
   nrf->tx_work_buffer[0] = 0x20 | reg;
   for(size_t i=0; i < len; ++i)
   {
@@ -172,7 +185,7 @@ static uint8_t nrf24_reg_read(uint8_t reg)
   res = spi_device_transmit(nrf->spi, &t);
   ESP_ERROR_CHECK(res);
   ret = t.rx_data[1];
-  //printf("nrf24_reg_read: %#2x: %#2x\n", reg, ret);
+  //printf("rr: %#2x: %#2x\n", reg, ret);
   return ret;
 }
 
@@ -262,42 +275,12 @@ void nrf24_flush_tx()
 }
 
 
-static void  nrf24_open_tx_pipe(const char address[5], uint8_t payload_size)
-{
-  uint8_t h[5];
-  nrf24_reg_write_bytes(RX_ADDR_P0, (const uint8_t*)address, 5);
-  nrf24_reg_read_bytes(RX_ADDR_P0, h, 5);
-  /* for(size_t i=0; i < 5; ++i) */
-  /* { */
-  /*   printf("%#2x:", h[i]); */
-  /* } */
-  /* printf("\n"); */
-  nrf24_reg_write_bytes(TX_ADDR, (const uint8_t*)address, 5);
-  nrf24_reg_write(RX_PW_P0, payload_size);
-}
-
-
-static void nrf24_open_rx_pipe(uint8_t pipe_id, const char address[5], uint8_t payload_size)
-{
-  // I only allow the rx-pipe to be 1-5 because
-  // the pipe 0 is always equal to the tx pipe's address
-  // I also currently allow just for *one* rx pipe with
-  // the full address. I don't need more, and the code
-  // is not supposed to be generic.
-  assert(1 <= pipe_id && pipe_id < 2);
-  nrf24_reg_write_bytes(RX_ADDR_P0 + pipe_id, (const uint8_t*)address, 5);
-  nrf24_reg_write(RX_PW_P0 + pipe_id, payload_size);
-  nrf24_reg_write(EN_RXADDR, nrf24_reg_read(EN_RXADDR) | (1 << pipe_id));
-}
-
-
-static void nrf24_send_start(const char* payload, int payload_size)
+static void nrf24_send_start(const uint8_t* payload, int payload_size)
 {
   esp_err_t res;
   assert(payload_size >= 1 && payload_size <= PAYLOAD_SIZE);
 
   nrf24_reg_write(CONFIG, (nrf24_reg_read(CONFIG) | PWR_UP) & ~PRIM_RX);
-  nrf24_usleep(150); // switching the RX to TX takes this long
 
   nrf->tx_work_buffer[0] = W_TX_PAYLOAD;
   for(size_t i=0; i < payload_size; ++i)
@@ -323,8 +306,22 @@ static void nrf24_send_start(const char* payload, int payload_size)
   nrf24_ce(0);
 }
 
+void nrf24_dump_pipe_addresses()
+{
+  uint8_t buffer[5];
+  memset(buffer, 0, 5);
+  nrf24_reg_read_bytes(TX_ADDR, buffer, 5);
+  printf("tx: %s\n", buffer);
+  memset(buffer, 0, 5);
+  nrf24_reg_read_bytes(RX_ADDR_P0, buffer, 5);
+  printf("p0: %s\n", buffer);
+  memset(buffer, 0, 5);
+  nrf24_reg_read_bytes(RX_ADDR_P0 + 1, buffer, 5);
+  printf("p1: %s\n", buffer);
+}
 
-int nrf24_setup(const char local_address[5], const char remote_address[5])
+
+int nrf24_setup(const char local_address[5])
 {
   int res = 0;
   esp_err_t spi_res;
@@ -338,6 +335,10 @@ int nrf24_setup(const char local_address[5], const char remote_address[5])
   gpio_pad_select_gpio(CE);
   gpio_set_level(CE, 0);
   gpio_set_direction(CE, GPIO_MODE_OUTPUT);
+
+  gpio_pad_select_gpio(SENDING_DEBUG_PIN);
+  gpio_set_level(SENDING_DEBUG_PIN, 0);
+  gpio_set_direction(SENDING_DEBUG_PIN, GPIO_MODE_OUTPUT);
 
   nrf = (nrf24_data_t*)malloc(sizeof(nrf24_data_t));
   if(!nrf)
@@ -385,7 +386,8 @@ int nrf24_setup(const char local_address[5], const char remote_address[5])
   nrf24_flush_rx();
   nrf24_flush_tx();
   nrf24_open_tx_pipe(local_address, PAYLOAD_SIZE);
-  nrf24_open_rx_pipe(1, remote_address, PAYLOAD_SIZE);
+  char fake_address[] = { 'F', 'O', 'O', 'B', 0 };
+  nrf24_open_rx_pipe(1, fake_address, PAYLOAD_SIZE);
   goto exit;
 close_spi:
   nrf24_teardown();
@@ -418,6 +420,7 @@ void nrf24_start_listening()
   nrf24_flush_rx();
   nrf24_flush_tx();
   nrf24_ce(1);
+  nrf24_sending(0);
   nrf24_usleep(START_LISTENING_TIMEOUT_US);
 }
 
@@ -426,6 +429,8 @@ void nrf24_stop_listening()
 {
   assert(nrf);
   nrf24_ce(0);
+  nrf24_sending(1);
+  nrf24_reg_write(STATUS, RX_DR | TX_DS | MAX_RT);
   nrf24_flush_rx();
   nrf24_flush_tx();
 }
@@ -434,21 +439,41 @@ void nrf24_stop_listening()
 int nrf24_any()
 {
   assert(nrf);
-  return !(nrf24_reg_read(FIFO_STATUS) & RX_EMPTY);
+  int res = !(nrf24_reg_read(FIFO_STATUS) & RX_EMPTY);
+  //nrf24_dump_pipe_addresses();
+  return res;
 }
 
 
-static int nrf24_send_done()
+static nrf24_send_error_t nrf24_send_done()
 {
   assert(nrf);
   if(!(nrf24_reg_read(STATUS) & (TX_DS | MAX_RT)))
   {
-    return -1;
+    return NRF24_SEND_ERROR_NONE;
   }
   // either finished or failed: get and clear status flags, power down
   uint8_t status = nrf24_reg_write(STATUS, RX_DR | TX_DS | MAX_RT);
   nrf24_reg_write(CONFIG, nrf24_reg_read(CONFIG) & ~PWR_UP);
-  return (status & TX_DS) ? 1 : 2;
+  if(status & TX_DS)
+  {
+    return NRF24_SEND_ERROR_OK;
+  }
+  if(status & MAX_RT)
+  {
+    uint8_t observe = nrf24_reg_read(OBSERVE_TX);
+    if(observe != nrf->error_info.last_observe_tx)
+    {
+      // we actually have a real MAX_RT reached case
+      // and return that
+      nrf->error_info.last_observe_tx = observe;
+      return NRF24_SEND_ERROR_MAX_RT;
+    }
+  }
+  // the rest (which according to LOGIC!! (*sigh*)
+  // should only be MAX_RT but no observable difference
+  // is spurious.
+  return NRF24_SEND_ERROR_SPURIOUS;
 }
 
 
@@ -459,16 +484,31 @@ int64_t ticks_diff(int64_t end, int64_t start)
 }
 
 
-int nrf24_send(const char* payload, int payload_size)
+nrf24_send_error_t nrf24_send(const uint8_t* payload, size_t payload_size)
 {
   assert(nrf);
   nrf24_send_start(payload, payload_size);
 
   int64_t start = esp_timer_get_time();
-  int result = -1;
-  while(result == -1 && ticks_diff(esp_timer_get_time(), start) < SEND_TIMEOUT * 1000)
+  nrf24_send_error_t result = NRF24_SEND_ERROR_NONE;
+  while(result == NRF24_SEND_ERROR_NONE && ticks_diff(esp_timer_get_time(), start) < SEND_TIMEOUT * 1000)
   {
-    result = nrf24_send_done(); // -1 timeout, 1 == success, 2 == fail
+    result = nrf24_send_done();
+  }
+  switch(result)
+  {
+  case NRF24_SEND_ERROR_NONE:
+    ++nrf->error_info.timeout;
+    break;
+  case NRF24_SEND_ERROR_OK:
+    ++nrf->error_info.ok;
+    break;
+  case NRF24_SEND_ERROR_MAX_RT:
+    ++nrf->error_info.max_rt;
+    break;
+  case NRF24_SEND_ERROR_SPURIOUS:
+    ++nrf->error_info.spurious;
+    break;
   }
   return result;
 }
@@ -479,12 +519,8 @@ size_t nrf24_recv(unsigned char* buffer, size_t len)
   assert(nrf);
   esp_err_t res;
   nrf->tx_work_buffer[0] = R_RX_PAYLOAD;
-
-  for(size_t i=0; i < PAYLOAD_SIZE; ++i)
-  {
-    nrf->tx_work_buffer[1 + i] = 0;
-    nrf->rx_work_buffer[1 + i] = 0;
-  }
+  memset(nrf->tx_work_buffer + 1, 0, PAYLOAD_SIZE);
+  memset(nrf->rx_work_buffer + 1, 0, PAYLOAD_SIZE);
 
   struct spi_transaction_t t = { 0 };
   t.length = 8 + PAYLOAD_SIZE * 8;
@@ -494,10 +530,176 @@ size_t nrf24_recv(unsigned char* buffer, size_t len)
   res = spi_device_transmit(nrf->spi, &t);
   ESP_ERROR_CHECK(res);
   nrf24_reg_write(STATUS, RX_DR);
-  size_t to_copy = len < PAYLOAD_SIZE ? len : PAYLOAD_SIZE;
-  for(size_t i=0; i < to_copy; ++i)
+  size_t to_copy = PAYLOAD_SIZE;
+  if(buffer)
   {
-    buffer[i] = nrf->rx_work_buffer[1 + i];
+    to_copy = MIN(len, PAYLOAD_SIZE);
+    memcpy(buffer, nrf->rx_work_buffer + 1, to_copy);
   }
   return to_copy;
+}
+
+
+void nrf24_open_tx_pipe(const char address[5], int payload_size)
+{
+  uint8_t h[5];
+  // This needs to be set to the same address according to
+  // the datasheed for auto-ack
+  nrf24_reg_write_bytes(RX_ADDR_P0, (const uint8_t*)address, 5);
+  nrf24_reg_write_bytes(TX_ADDR, (const uint8_t*)address, 5);
+  nrf24_reg_write(RX_PW_P0, payload_size);
+  nrf24_reg_write(EN_RXADDR, nrf24_reg_read(EN_RXADDR) | (1 << 0));
+}
+
+
+void nrf24_open_rx_pipe(int pipe_id, const char address[5], int payload_size)
+{
+  // I only allow the rx-pipe to be 1-5 because
+  // the pipe 0 is always equal to the tx pipe's address
+  // I also currently allow just for *one* rx pipe with
+  // the full address. I don't need more, and the code
+  // is not supposed to be generic.
+  // So in sum, pipe_id can only be 1 ;)
+  assert(1 <= pipe_id && pipe_id < 2);
+  nrf24_reg_write_bytes(RX_ADDR_P0 + pipe_id, (const uint8_t*)address, 5);
+  nrf24_reg_write(RX_PW_P0 + pipe_id, payload_size);
+  nrf24_reg_write(EN_RXADDR, nrf24_reg_read(EN_RXADDR) | (1 << pipe_id));
+}
+
+static int nrf24_wait_for_incoming_or_timeout()
+{
+  int64_t start_time = esp_timer_get_time();
+  while(!nrf24_any())
+  {
+    if(ticks_diff(esp_timer_get_time(), start_time) > RECEIVE_TIMEOUT_MS * 1000)
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// Implements the ping and subsequent message retrieval for
+// a given spoke
+nrf24_hub_to_spoke_error_t nrf24_hub_to_spoke(const char remote_address[5], uint8_t** buffer, size_t* len)
+{
+  *buffer = 0;
+  *len = 0;
+  nrf24_hub_to_spoke_error_t result = NRF24_HUB_ERROR_OK;
+
+  nrf24_open_tx_pipe(remote_address, PAYLOAD_SIZE);
+
+  // workaround...
+  nrf24_send_start((const uint8_t*)"PING", 4);
+  // now REALLY send
+  nrf24_send_error_t send_error = nrf24_send((const uint8_t*)"PING", 4);
+  if(send_error != NRF24_SEND_ERROR_OK)
+  {
+    //printf("send_error: %i\n", send_error);
+    result = NRF24_HUB_SEND_FAILED;
+    goto exit;
+  }
+
+  nrf24_start_listening();
+
+  size_t received_bytes = 0;
+  uint8_t* buffer_pointer = nrf->hub_work_buffer;
+  uint8_t packets_left = 1;
+  while(packets_left)
+  {
+    if(nrf24_wait_for_incoming_or_timeout())
+    {
+      result = NRF24_HUB_RX_TIMEOUT;
+      goto exit;
+    }
+    nrf24_recv(0, 0);
+    // the rx_buffer has a leading padding byte,
+    // so we have to skip two, not just one, for
+    // the packet length
+    uint8_t packet_length = nrf->rx_work_buffer[2];
+    // same reason here - skip one byte more
+    packets_left = nrf->rx_work_buffer[1];
+    received_bytes += packet_length;
+    if(received_bytes > HUB_WORK_BUFFER_SIZE)
+    {
+      result = NRF24_HUB_PAYLOAD_TOO_LONG;
+      goto exit;
+    }
+    memcpy(buffer_pointer, nrf->rx_work_buffer + 3, packet_length);
+    buffer_pointer += packet_length;
+  }
+
+  *len = received_bytes;
+  *buffer = nrf->hub_work_buffer;
+
+exit:
+  nrf24_stop_listening();
+  return result;
+}
+
+
+void nrf24_clear_error_info()
+{
+  assert(nrf);
+  memset(&nrf->error_info, 0, sizeof(nrf24_error_info_t));
+  // this is needed according to section 7.4.2
+  // to reset OBSERVE_TX
+  nrf24_set_channel(CHANNEL);
+}
+
+
+nrf24_error_info_t nrf24_error_info()
+{
+  assert(nrf);
+  return nrf->error_info;
+}
+
+#define PROTOCOL_HEADER_LENGTH 2
+#define PAYLOAD_AVAILABLE (PAYLOAD_SIZE - PROTOCOL_HEADER_LENGTH)
+
+nrf24_spoke_to_hub_error_t nrf24_spoke_to_hub_send(const uint8_t * buffer, size_t len)
+{
+  nrf24_spoke_to_hub_error_t res = NRF24_SPOKE_ERROR_OK;
+
+  nrf24_stop_listening();
+  // give the TX time to switch to become RX
+  nrf24_usleep(TX_SWITCH_DELAY_US);
+
+  int packets_to_send = len / PAYLOAD_AVAILABLE + (
+    (len % PAYLOAD_AVAILABLE > 0) ? 1 : 0);
+
+  //printf("for %i bytes sending %i packets\n", len, packets_to_send);
+
+  for(int packet=0; packet < packets_to_send; ++packet)
+  {
+    uint8_t packet_buffer[PAYLOAD_SIZE];
+    uint8_t to_copy = MIN(len, PAYLOAD_AVAILABLE);
+
+    //printf("to_copy %i\n", to_copy);
+
+    packet_buffer[0] = packets_to_send - packet - 1;
+    packet_buffer[1] = to_copy;
+
+    uint8_t* dest = packet_buffer + PROTOCOL_HEADER_LENGTH;
+    memcpy(dest, buffer, to_copy);
+    buffer += to_copy;
+    len -= to_copy;
+    nrf24_send_error_t send_error = nrf24_send(packet_buffer, to_copy + PROTOCOL_HEADER_LENGTH);
+
+    switch(send_error)
+    {
+      // this means a timetout... I bail out!
+    case NRF24_SEND_ERROR_NONE:
+    case NRF24_SEND_ERROR_MAX_RT:
+    case NRF24_SEND_ERROR_SPURIOUS:
+      res = NRF24_SPOKE_SEND_FAILED;
+      goto exit;
+    case NRF24_SEND_ERROR_OK:
+      break;
+    }
+  }
+
+exit:
+  nrf24_start_listening();
+  return res;
 }
