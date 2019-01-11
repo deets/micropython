@@ -451,17 +451,11 @@ static int nrf24_send_done()
   return (status & TX_DS) ? 1 : 2;
 }
 
-#define UTIME_TICKS_PERIOD (1ull << 63)
 
 int64_t ticks_diff(int64_t end, int64_t start)
 {
-  return ((end - start + UTIME_TICKS_PERIOD / 2) & (UTIME_TICKS_PERIOD - 1));
-  /* uint64_t res = end - start; */
-  /* if(res < 0) */
-  /* { */
-  /*   res += (1ull << 63); */
-  /* } */
-  /* return res; */
+  // TODO: overrun!
+  return (end - start);
 }
 
 
