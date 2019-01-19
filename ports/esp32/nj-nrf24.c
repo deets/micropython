@@ -5,6 +5,7 @@
 #include "py/mpconfig.h"
 
 #include <esp_timer.h>
+#include "driver/uart.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -543,7 +544,6 @@ size_t nrf24_recv(unsigned char* buffer, size_t len)
 
 void nrf24_open_tx_pipe(const char address[5], int payload_size)
 {
-  uint8_t h[5];
   // This needs to be set to the same address according to
   // the datasheed for auto-ack
   nrf24_reg_write_bytes(RX_ADDR_P0, (const uint8_t*)address, 5);
@@ -582,7 +582,7 @@ static int nrf24_wait_for_incoming_or_timeout()
 
 // Implements the ping and subsequent message retrieval for
 // a given spoke
-nrf24_hub_to_spoke_error_t nrf24_hub_to_spoke(const char remote_address[5], uint8_t** buffer, size_t* len)
+nrf24_hub_to_spoke_error_t nrf24_hub_to_spoke(const char remote_address[5], uint8_t use_uart, uint8_t** buffer, size_t* len)
 {
   *buffer = 0;
   *len = 0;
@@ -630,8 +630,19 @@ nrf24_hub_to_spoke_error_t nrf24_hub_to_spoke(const char remote_address[5], uint
     buffer_pointer += packet_length;
   }
 
-  *len = received_bytes;
-  *buffer = nrf->hub_work_buffer;
+  if(use_uart)
+  {
+    uart_write_bytes(
+      use_uart,
+      (const char*)nrf->hub_work_buffer,
+      received_bytes
+      );
+  }
+  else
+  {
+    *len = received_bytes;
+    *buffer = nrf->hub_work_buffer;
+  }
 
 exit:
   nrf24_stop_listening();

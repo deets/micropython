@@ -400,10 +400,11 @@ STATIC mp_obj_t newjoy_nrf24_spoke_to_hub_send(mp_obj_t payload)
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_spoke_to_hub_send_obj, newjoy_nrf24_spoke_to_hub_send);
 
 
-STATIC mp_obj_t newjoy_nrf24_hub_to_spoke(mp_obj_t remote_address_obj)
+STATIC mp_obj_t newjoy_nrf24_hub_to_spoke(mp_obj_t remote_address_obj, mp_obj_t use_uart_obj)
 {
   mp_buffer_info_t remote_address_buffer;
   mp_get_buffer_raise(remote_address_obj, &remote_address_buffer, MP_BUFFER_READ);
+  int use_uart = mp_obj_get_int(use_uart_obj);
 
   if(remote_address_buffer.len != 5)
   {
@@ -414,6 +415,7 @@ STATIC mp_obj_t newjoy_nrf24_hub_to_spoke(mp_obj_t remote_address_obj)
   size_t received = 0;
   nrf24_hub_to_spoke_error_t res = nrf24_hub_to_spoke(
     remote_address_buffer.buf,
+    use_uart,
     &buffer,
     &received
     );
@@ -434,7 +436,7 @@ STATIC mp_obj_t newjoy_nrf24_hub_to_spoke(mp_obj_t remote_address_obj)
   return mp_obj_new_bytes(buffer, received);
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_hub_to_spoke_obj, newjoy_nrf24_hub_to_spoke);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(newjoy_nrf24_hub_to_spoke_obj, newjoy_nrf24_hub_to_spoke);
 
 
 STATIC mp_obj_t newjoy_nrf24_read_register(mp_obj_t reg_obj)

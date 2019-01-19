@@ -60,6 +60,6 @@ nrf24_error_info_t nrf24_error_info();
 nrf24_send_error_t nrf24_send(const uint8_t* payload, size_t payload_length);
 size_t nrf24_recv(unsigned char* buffer, size_t len);
 
-nrf24_hub_to_spoke_error_t nrf24_hub_to_spoke(const char remote_address[5], uint8_t** buffer, size_t* len);
+nrf24_hub_to_spoke_error_t nrf24_hub_to_spoke(const char remote_address[5], uint8_t use_uart, uint8_t** buffer, size_t* len);
 
 nrf24_spoke_to_hub_error_t nrf24_spoke_to_hub_send(const uint8_t * buffer, size_t len);
