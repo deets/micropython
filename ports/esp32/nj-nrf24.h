@@ -48,6 +48,7 @@ typedef struct
 } nrf24_error_info_t;
 
 int nrf24_setup(const char local_address[5]);
+uint8_t nrf24_reg_read(uint8_t register);
 void nrf24_open_rx_pipe(int number, const char local_address[5], int payload_size);
 void nrf24_open_tx_pipe(const char remote_address[5], int payload_size);
 void nrf24_teardown();

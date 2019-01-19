@@ -45,6 +45,7 @@ static nrf24_data_t* nrf = 0;
 
 // nRF24L01+ registers
 #define CONFIG      0x00
+#define EN_AA       0x01
 #define EN_RXADDR   0x02
 #define SETUP_AW    0x03
 #define SETUP_RETR  0x04
@@ -173,7 +174,7 @@ static void nrf24_reg_write_bytes(uint8_t reg, const uint8_t* buf, size_t len)
 }
 
 
-static uint8_t nrf24_reg_read(uint8_t reg)
+uint8_t nrf24_reg_read(uint8_t reg)
 {
   esp_err_t res;
   uint8_t ret;

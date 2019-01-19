@@ -437,6 +437,15 @@ STATIC mp_obj_t newjoy_nrf24_hub_to_spoke(mp_obj_t remote_address_obj)
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_hub_to_spoke_obj, newjoy_nrf24_hub_to_spoke);
 
 
+STATIC mp_obj_t newjoy_nrf24_read_register(mp_obj_t reg_obj)
+{
+  uint8_t reg = (uint8_t)mp_obj_get_int(reg_obj);
+  return mp_obj_new_int(nrf24_reg_read(reg));
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(newjoy_nrf24_read_register_obj, newjoy_nrf24_read_register);
+
+
 STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_newjoy) },
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&newjoy_init_obj) },
@@ -447,6 +456,7 @@ STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
 
     { MP_ROM_QSTR(MP_QSTR_nrf24_setup), MP_ROM_PTR(&newjoy_nrf24_setup_obj) },
     { MP_ROM_QSTR(MP_QSTR_nrf24_teardown), MP_ROM_PTR(&newjoy_nrf24_teardown_obj) },
+    { MP_ROM_QSTR(MP_QSTR_nrf24_read_register), MP_ROM_PTR(&newjoy_nrf24_read_register_obj) },
     { MP_ROM_QSTR(MP_QSTR_nrf24_start_listening), MP_ROM_PTR(&newjoy_nrf24_start_listening_obj) },
     { MP_ROM_QSTR(MP_QSTR_nrf24_stop_listening), MP_ROM_PTR(&newjoy_nrf24_stop_listening_obj) },
     { MP_ROM_QSTR(MP_QSTR_nrf24_any), MP_ROM_PTR(&newjoy_nrf24_any_obj) },
