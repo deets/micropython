@@ -197,7 +197,7 @@ STATIC mp_obj_t machine_uart_make_new(const mp_obj_type_t *type, size_t n_args, 
 
      // Defaults
     uart_config_t uartcfg = {
-        .baud_rate = 115200,
+        .baud_rate = 230400,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
