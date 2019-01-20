@@ -1,4 +1,4 @@
-ESPIDF = /home/deets/software/vc/esp-idf
+ESPIDF = /Users/deets/software/vc/esp-idf
 PORT = /dev/ttyUSB0
 #FLASH_MODE = qio
 #FLASH_SIZE = 4MB
