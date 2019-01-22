@@ -30,6 +30,19 @@
 
 #include <string.h>
 
+// CALIBRATION METHOD
+// #define AVERAGE_CALIBRATION
+// #define NO_CALIBRATION
+#define MA_CALIBRATION
+
+// PUT CALIBRATION INTO ACC VALUES
+// #define GYRO_CALIBRATION_IN_ACC
+
+// parameters for moving average calibration
+#define MA_SHIFT 16
+#define MA_SECONDS 5
+#define MA_N (200 * MA_SECONDS / 5) // steps per second (must be computed by hand and re-compiled if changed) times half the interval
+
 #define MPU6050_ADDRESS_AD0_LOW 0x68
 #define MPU6050_ADDRESS_AD0_HIGH 0x69
 #define MPU6050_DEFAULT_ADDRESS MPU6050_ADDRESS_AD0_LOW
@@ -74,12 +87,22 @@ typedef struct {
   uint8_t input_buffer[14]; // acc + temp + gyro data
   float acc_correction;
   float gyro_correction;
+
+  gyro_calbration_mode_t gyro_calbration_mode;
+
+  // for average calibration
   int16_t gyro_calibration[3];
   int16_t acc_calibration[3];
   int16_t gyro_calibration_buffer[3 * GYRO_CALIBRATION_BUFFER_SIZE];
   int16_t acc_calibration_buffer[3 * GYRO_CALIBRATION_BUFFER_SIZE];
   size_t gyro_calibration_buffer_fill;
-  gyro_calbration_mode_t gyro_calbration_mode;
+
+  // for ma calibration
+  int32_t ma_gyro_calibration[3];
+  int32_t ma_acc_calibration[3];
+  int32_t ma_step;
+  int32_t ma_total_steps;
+
   madgwick_data_t filter_data;
 } mpu6050_task_data_t;
 
@@ -106,6 +129,60 @@ STATIC int16_t compute_average(int16_t* buffer)
   accu /= GYRO_CALIBRATION_BUFFER_SIZE;
   return (int16_t)accu;
 }
+
+STATIC void compute_average_calibration(mpu6050_task_data_t* task_data, int16_t* word_access)
+{
+    for(size_t i=0; i < 3; ++i)
+    {
+      task_data->gyro_calibration_buffer[task_data->gyro_calibration_buffer_fill * 3 + i] = word_access[3 + 1 + i];  // 3 acc + 1 temp
+      task_data->acc_calibration_buffer[task_data->gyro_calibration_buffer_fill * 3 + i] = word_access[i];
+    }
+    task_data->gyro_calibration_buffer_fill = (task_data->gyro_calibration_buffer_fill + 1) % GYRO_CALIBRATION_BUFFER_SIZE;
+    // if we reach zero, we have sampled one full ring-buffer of data, so try & compute the variance, and assume calibration
+    // if all of them are below a threshold
+    if(compute_variance(&task_data->gyro_calibration_buffer[0]) < GYRO_CALIBRATION_VARIANCE && \
+       compute_variance(&task_data->gyro_calibration_buffer[1]) < GYRO_CALIBRATION_VARIANCE && \
+       compute_variance(&task_data->gyro_calibration_buffer[2]) < GYRO_CALIBRATION_VARIANCE)
+    {
+      task_data->gyro_calbration_mode = GYRO_CALIBRATED;
+      // I piggy-back on the gyros being stable, as I presume there is also no acceleration going on then
+      for(size_t i=0; i < 3; ++i)
+      {
+        task_data->gyro_calibration[i] = compute_average(&task_data->gyro_calibration_buffer[i]);
+        task_data->acc_calibration[i] = compute_average(&task_data->acc_calibration_buffer[i]);
+      }
+      task_data->acc_calibration[2] -= (int16_t)(task_data->acc_correction) ; // assume level orientation!
+    }
+}
+
+STATIC void compute_ma(int32_t* ma, int32_t value, int32_t n)
+{
+  *ma = *ma + ((value << MA_SHIFT) - *ma) / n;
+}
+
+
+STATIC void compute_ma_calibration(mpu6050_task_data_t* task_data, int16_t* word_access)
+{
+  if(++task_data->ma_step >= task_data->ma_total_steps)
+  {
+    task_data->gyro_calbration_mode = GYRO_CALIBRATED;
+    for(size_t i=0; i < 3; ++i)
+    {
+      task_data->gyro_calibration[i] = task_data->ma_gyro_calibration[i] >> MA_SHIFT;
+      task_data->acc_calibration[i] = task_data->ma_acc_calibration[i] >> MA_SHIFT;
+    }
+    task_data->acc_calibration[2] -= (int16_t)(task_data->acc_correction) ; // assume level orientation!
+  }
+  else
+  {
+    for(size_t i=0; i < 3; ++i)
+    {
+      compute_ma(&task_data->ma_gyro_calibration[i], word_access[3 + 1 + i], MA_N); // 3 acc + 1 temp
+      compute_ma(&task_data->ma_acc_calibration[i], word_access[i], MA_N);
+    }
+  }
+}
+
 
 
 void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
@@ -136,27 +213,21 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
     // when uncalibrated, no readings occur!
     gyro_data[0] = gyro_data[1] = gyro_data[2] = 0.0f;
     acc_data[0] = acc_data[1] = acc_data[2] = 0.0f;
-    for(size_t i=0; i < 3; ++i)
+
+    #ifdef AVERAGE_CALIBRATION
+    compute_average_calibration(task_data, word_access);
+    #endif
+    #ifdef MA_CALIBRATION
+    compute_ma_calibration(task_data, word_access);
+    #endif
+    #ifdef NO_CALIBRATION
+    for(int i=0; i < 3; ++i)
     {
-      task_data->gyro_calibration_buffer[task_data->gyro_calibration_buffer_fill * 3 + i] = word_access[3 + 1 + i];
-      task_data->acc_calibration_buffer[task_data->gyro_calibration_buffer_fill * 3 + i] = word_access[i];
+      task_data->gyro_calibration[i] = 0;
+      task_data->acc_calibration[i] = 0;
     }
-    task_data->gyro_calibration_buffer_fill = (task_data->gyro_calibration_buffer_fill + 1) % GYRO_CALIBRATION_BUFFER_SIZE;
-    // if we reach zero, we have sampled one full ring-buffer of data, so try & compute the variance, and assume calibration
-    // if all of them are below a threshold
-    if(compute_variance(&task_data->gyro_calibration_buffer[0]) < GYRO_CALIBRATION_VARIANCE && \
-       compute_variance(&task_data->gyro_calibration_buffer[1]) < GYRO_CALIBRATION_VARIANCE && \
-       compute_variance(&task_data->gyro_calibration_buffer[2]) < GYRO_CALIBRATION_VARIANCE)
-    {
-      task_data->gyro_calbration_mode = GYRO_CALIBRATED;
-      // I piggy-back on the gyros being stable, as I presume there is also no acceleration going on then
-      for(size_t i=0; i < 3; ++i)
-      {
-        task_data->gyro_calibration[i] = compute_average(&task_data->gyro_calibration_buffer[i]);
-        task_data->acc_calibration[i] = compute_average(&task_data->acc_calibration_buffer[i]);
-      }
-      task_data->acc_calibration[2] -= (int16_t)(task_data->acc_correction) ; // assume level orientation!
-    }
+    task_data->gyro_calbration_mode = GYRO_CALIBRATED;
+    #endif
     break;
   case GYRO_CALIBRATED:
     for(size_t i=0; i < 3; ++i)
@@ -174,9 +245,15 @@ void newjoy_task_mpu6050(nj_task_def_t* task, uint8_t *buffer)
     *quaternion_data++ = task_data->filter_data.q1;
     *quaternion_data++ = task_data->filter_data.q2;
     *quaternion_data++ = task_data->filter_data.q3;
+#ifdef GYRO_CALIBRATION_IN_ACC
+    *quaternion_data++ = task_data->gyro_calibration[0];
+    *quaternion_data++ = task_data->gyro_calibration[1];
+    *quaternion_data++ = task_data->gyro_calibration[2];
+#else
     *quaternion_data++ = acc_data[0];
     *quaternion_data++ = acc_data[1];
     *quaternion_data++ = acc_data[2];
+#endif
     break;
   }
 }
@@ -308,6 +385,14 @@ int newjoy_task_setup_mpu6050(nj_task_def_t* task, int period)
     &task_data->filter_data,
     1000 / period // period is in ms
     );
+
+  task_data->ma_step = 0;
+  task_data->ma_total_steps = MA_SECONDS * 1000 / period;
+  for(size_t i=0; i < 3; ++i)
+  {
+    task_data->ma_gyro_calibration[i] = 0;
+    task_data->ma_acc_calibration[i] = 0;
+  }
   return 0;
 }
 
