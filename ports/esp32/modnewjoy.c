@@ -51,10 +51,18 @@ int nj_period_in_ms;
 
 EventGroupHandle_t nj_event_handle;
 StaticEventGroup_t nj_event_group;
+int64_t nj_max_task_time = 0;
+
+STATIC int64_t ticks_diff(int64_t end, int64_t start)
+{
+  // TODO: overrun!
+  return (end - start);
+}
 
 STATIC void nj_task()
 {
   ++nj_timer_counter;
+  int64_t start = esp_timer_get_time();
   for(size_t i=0; i < nj_task_count; ++i)
   {
     nj_task_def_t *current = &nj_tasks[i];
@@ -69,6 +77,10 @@ STATIC void nj_task()
     }
   }
   xEventGroupSetBits(nj_event_handle, 1);
+  nj_max_task_time = MAX(
+    nj_max_task_time,
+    ticks_diff(esp_timer_get_time(), start)
+    );
 }
 
 
@@ -176,12 +188,12 @@ STATIC mp_obj_t newjoy_deinit()
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_deinit_obj, newjoy_deinit);
 
 
-STATIC mp_obj_t newjoy_timer_count()
+STATIC mp_obj_t newjoy_max_task_time()
 {
-  return mp_obj_new_int(nj_timer_counter);
+  return mp_obj_new_int(nj_max_task_time);
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_timer_count_obj, newjoy_timer_count);
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(newjoy_max_task_time_obj, newjoy_max_task_time);
 
 
 STATIC mp_obj_t newjoy_sync()
@@ -453,7 +465,7 @@ STATIC const mp_rom_map_elem_t module_globals_table_newjoy[] = {
     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&newjoy_init_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&newjoy_deinit_obj) },
     { MP_ROM_QSTR(MP_QSTR_sync), MP_ROM_PTR(&newjoy_sync_obj) },
-    { MP_ROM_QSTR(MP_QSTR_timer_count), MP_ROM_PTR(&newjoy_timer_count_obj) },
+    { MP_ROM_QSTR(MP_QSTR_max_task_time), MP_ROM_PTR(&newjoy_max_task_time_obj) },
     { MP_ROM_QSTR(MP_QSTR_add_task), MP_ROM_PTR(&newjoy_add_task_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_nrf24_setup), MP_ROM_PTR(&newjoy_nrf24_setup_obj) },
